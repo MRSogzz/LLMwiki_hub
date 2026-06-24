@@ -2,7 +2,7 @@
   "name": "llm-wiki",
   "version": "1.0.0",
   "description": "人機協作知識管理系統 — Markdown SSOT + HUD 介面 + 代碼 I/O 週期表",
-  "license": "GPL-3.0",
+  "license": "CC BY-NC-SA 4.0",
   "author": "LLM WIKI Contributors",
   "private": true,
   "type": "module",

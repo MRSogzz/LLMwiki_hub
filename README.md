@@ -214,7 +214,7 @@ llm-wiki/
 ├── .env.example                    ← 環境變數範本
 ├── package.json
 ├── tsconfig.json
-└── LICENSE                         ← CC BY-NC-SA 4.0（文件）+ GPL v3（代碼）
+└── LICENSE                         ← CC BY-NC-SA 4.0（文件）
 ```
 
 ---
