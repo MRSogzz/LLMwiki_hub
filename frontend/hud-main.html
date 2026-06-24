@@ -1,0 +1,1705 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM WIKI — HUD</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --accent:   #E8C873;
+      --accent2:  #F5A623;
+      --text:     #f0ead8;
+      --muted:    rgba(255,255,255,0.35);
+      --border:   rgba(232,200,115,0.22);
+      --border2:  rgba(232,200,115,0.60);
+      --panel-bg: rgba(8,14,28,0.97);
+      --key-bg:   rgba(0,0,0,0.48);
+      --quest-bg: rgba(0,0,0,0.58);
+      --bg-blur:  4px;
+      --hp-l:     #4CAF50;
+      --hp-r:     #8BC34A;
+      --api:      http://localhost:3001;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; overflow: hidden; font-family: 'JetBrains Mono', monospace; }
+
+    /* HUD Root */
+    .hud { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    .hud-bg { position: absolute; inset: 0; background: #1a2535 center/cover no-repeat; z-index: 0; }
+    .hud-vignette {
+      position: absolute; inset: 0; z-index: 1; pointer-events: none;
+      background:
+        radial-gradient(ellipse 65% 55% at 50% 50%, transparent 38%, rgba(0,0,0,0.52) 100%),
+        linear-gradient(to bottom, rgba(0,0,0,0.42) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.38) 100%),
+        linear-gradient(to right, rgba(0,0,0,0.38) 0%, transparent 22%, transparent 78%, rgba(0,0,0,0.38) 100%);
+    }
+    .hud-el { position: absolute; z-index: 2; }
+
+    /* Minimap */
+    .minimap-wrap { top: 16px; left: 16px; }
+    .compass { display: flex; flex-direction: column; align-items: center; margin-bottom: 3px; }
+    .compass-needle { width: 2px; height: 14px; background: linear-gradient(to bottom, var(--accent) 50%, #666 50%); border-radius: 1px; }
+    .compass-n { font-size: 9px; color: var(--accent); font-weight: 700; line-height: 1; margin-top: 1px; }
+    .mm-ring {
+      width: 130px; height: 130px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.32);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.5), inset 0 0 22px rgba(0,0,0,0.45);
+      overflow: hidden; position: relative; background: #1a2c3a;
+    }
+    .mm-ring img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: none; }
+    .mm-ring img.on { display: block; }
+    .mm-ring img.on + svg { display: none; }
+
+    /* Quest Tracker */
+    .quest-wrap { top: 178px; left: 0; width: 248px; }
+    .quest-lbl { padding: 3px 13px 6px 15px; font-size: 9px; color: rgba(255,255,255,0.28); letter-spacing: .15em; text-transform: uppercase; }
+    .task-item {
+      display: flex; align-items: flex-start; gap: 9px;
+      padding: 7px 13px 7px 16px; margin-bottom: 2px;
+      background: linear-gradient(to right, var(--quest-bg) 0%, rgba(0,0,0,0.15) 88%, transparent 100%);
+      border-left: 2px solid transparent; cursor: pointer;
+      transition: border-color .18s, background .18s;
+    }
+    .task-item.active { border-left-color: var(--accent); }
+    .task-item:hover { background: linear-gradient(to right, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.28) 88%, transparent 100%); }
+    .task-gem { width: 12px; height: 12px; flex-shrink: 0; margin-top: 3px; border: 1.5px solid var(--accent); background: rgba(232,200,115,0.1); transform: rotate(45deg); transition: background .18s; }
+    .task-gem.lit { background: var(--accent); }
+    .task-name { font-size: 12px; color: var(--text); font-family: 'Noto Serif SC', serif; font-weight: 700; line-height: 1.3; text-shadow: 0 1px 4px rgba(0,0,0,0.85); }
+    .task-sub { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 10px; color: var(--accent); }
+    .task-arr { opacity: .6; font-size: 8px; }
+
+    /* Hotkeys */
+    .hk-wrap { top: 16px; right: 16px; display: flex; flex-direction: row; align-items: flex-start; gap: 8px; }
+    .hk { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: pointer; transition: transform .12s; position: relative; }
+    .hk:hover { transform: scale(1.1); }
+    .hk.active .hk-ico { outline: 2.5px solid rgba(255,255,255,0.9); outline-offset: 2px; }
+    .hk-ico {
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.32); background: var(--key-bg);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.55); transition: border-color .15s;
+    }
+    .hk:hover .hk-ico { border-color: rgba(255,255,255,0.7); }
+    .hk-ico img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: none; }
+    .hk-ico img.on { display: block; }
+    .hk-ico img.on ~ svg { display: none; }
+    .hk-kb { position: absolute; bottom: -1px; right: -1px; background: rgba(0,0,0,0.78); border: 1px solid rgba(255,255,255,0.22); border-radius: 3px; font-size: 8px; color: var(--accent); padding: 0 3px; line-height: 14px; font-weight: 700; }
+    .hk-notif { position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; border-radius: 50%; background: #e53935; border: 1.5px solid rgba(0,0,0,0.6); font-size: 8px; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+    .hk-lbl { font-size: 9px; color: rgba(255,255,255,0.65); text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,0.9); }
+
+    /* Character cards */
+    .char-wrap { top: 136px; right: 0; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+    .cc { display: flex; align-items: stretch; cursor: pointer; transition: transform .12s; }
+    .cc:hover { transform: translateX(-4px); }
+    .cc.active .cc-av { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .cc-info { text-align: right; padding: 5px 8px 5px 0; background: linear-gradient(to left, rgba(0,0,0,0.55), transparent); min-width: 88px; display: flex; flex-direction: column; justify-content: center; }
+    .cc-name { font-size: 12px; color: var(--text); font-family: 'Noto Serif SC', serif; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+    .cc-hp { height: 3px; background: rgba(0,0,0,0.4); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+    .cc-hp-fill { height: 100%; border-radius: 2px; background: linear-gradient(to right, var(--hp-l), var(--hp-r)); }
+    .cc-av { width: 52px; height: 52px; border-radius: 8px 0 0 8px; overflow: hidden; border: 1.5px solid rgba(255,255,255,0.24); border-right: none; background: rgba(30,40,60,0.8); box-shadow: -3px 0 10px rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; position: relative; flex-shrink: 0; }
+    .cc-av img { width: 100%; height: 100%; object-fit: cover; display: none; }
+    .cc-av img.on { display: block; }
+    .cc-av img.on + svg { display: none; }
+    .cc-av svg { width: 100%; height: 100%; }
+
+    /* ═══════════════════════════════════════════
+       FULLSCREEN MODAL — 三欄大面板（仿遊戲背包）
+    ═══════════════════════════════════════════ */
+    .modal-backdrop {
+      position: absolute; inset: 0; z-index: 10;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(var(--bg-blur));
+      -webkit-backdrop-filter: blur(var(--bg-blur));
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+
+    .modal {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(0.96);
+      /* 全屏大面板：佔滿視口的 92% × 90% */
+      width: 92vw; height: 90vh;
+      max-width: 1300px; max-height: 860px;
+      background: rgba(6,10,20,0.98);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      z-index: 11; opacity: 0; pointer-events: none;
+      transition: opacity .2s, transform .2s;
+    }
+    .modal.open {
+      opacity: 1; pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    /* 頂部標題列 */
+    .modal-header {
+      display: flex; align-items: center;
+      padding: 0 24px;
+      height: 52px; flex-shrink: 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.3);
+      position: relative;
+    }
+    .modal-title {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-family: 'Noto Serif SC', serif;
+      font-size: 16px; font-weight: 700;
+      color: var(--text); letter-spacing: .12em;
+    }
+    .modal-close {
+      margin-left: auto;
+      width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: var(--text); font-size: 16px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background .12s; font-family: inherit; line-height: 1;
+    }
+    .modal-close:hover { background: rgba(255,255,255,0.14); }
+
+    /* 三欄主體 */
+    .modal-body {
+      flex: 1; display: flex; overflow: hidden;
+      /* 覆寫任何 JS 行內樣式 */
+      padding: 0 !important;
+      overflow-y: visible !important;
+      height: auto !important;
+    }
+
+    /* 左側：分類側欄 */
+    .m-sidebar {
+      width: 80px; flex-shrink: 0;
+      background: rgba(0,0,0,0.35);
+      border-right: 1px solid rgba(255,255,255,0.06);
+      display: flex; flex-direction: column;
+      align-items: center; padding: 12px 0; gap: 4px;
+      overflow-y: auto;
+    }
+    .m-cat {
+      width: 64px; padding: 10px 4px 8px;
+      border-radius: 8px; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 5px;
+      transition: background .14s;
+      border: 1px solid transparent;
+    }
+    .m-cat:hover { background: rgba(255,255,255,0.05); }
+    .m-cat.active {
+      background: rgba(232,200,115,0.08);
+      border-color: rgba(232,200,115,0.3);
+    }
+    .m-cat-icon { font-size: 22px; line-height: 1; }
+    .m-cat-lbl { font-size: 10px; color: rgba(255,255,255,0.45); text-align: center; line-height: 1.2; }
+    .m-cat.active .m-cat-lbl { color: var(--accent); }
+    .m-cat-divider { width: 40px; height: 1px; background: rgba(255,255,255,0.08); margin: 6px 0; }
+
+    /* 中間：內容區 */
+    .m-content {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* 中間頂部：搜尋 / 工具列 */
+    .m-toolbar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .m-search {
+      flex: 1; max-width: 280px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px; padding: 7px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--text); outline: none;
+      transition: border-color .12s;
+    }
+    .m-search:focus { border-color: rgba(232,200,115,0.4); }
+    .m-search::placeholder { color: rgba(255,255,255,0.2); }
+
+    /* 中間主網格 */
+    .m-grid-wrap { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+    /* 物品方格 */
+    .m-item-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+      gap: 8px;
+    }
+    .m-item {
+      aspect-ratio: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; cursor: pointer;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 4px; padding: 8px 4px 6px;
+      transition: border-color .12s, background .12s;
+      position: relative; overflow: hidden;
+    }
+    .m-item:hover { border-color: rgba(232,200,115,0.4); background: rgba(232,200,115,0.05); }
+    .m-item.active { border-color: var(--accent); background: rgba(232,200,115,0.1); box-shadow: inset 0 0 0 1px rgba(232,200,115,0.25); }
+    .m-item-icon { font-size: 28px; line-height: 1; }
+    .m-item-svg { width: 40px; height: 40px; }
+    .m-item-name { font-size: 10px; color: rgba(255,255,255,0.55); text-align: center; line-height: 1.2; word-break: break-all; }
+    .m-item.active .m-item-name { color: var(--accent); }
+    /* 角標 */
+    .m-item-badge {
+      position: absolute; bottom: 4px; right: 6px;
+      font-size: 10px; color: rgba(255,255,255,0.6);
+      font-weight: 700;
+    }
+    /* 狀態角標 */
+    .m-item-status {
+      position: absolute; top: 4px; right: 5px;
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
+    /* 右側：詳情面板 */
+    .m-detail {
+      width: 280px; flex-shrink: 0;
+      background: rgba(4,8,18,0.6);
+      border-left: 1px solid rgba(255,255,255,0.07);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* 詳情頂部大圖區 */
+    .m-detail-img {
+      height: 180px; flex-shrink: 0;
+      background: linear-gradient(to bottom, rgba(20,40,60,0.5), rgba(4,8,18,0.9));
+      display: flex; align-items: center; justify-content: center;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      position: relative;
+    }
+    .m-detail-big-icon { font-size: 72px; line-height: 1; }
+    .m-detail-big-svg { width: 110px; height: 110px; }
+
+    /* 詳情名稱區 */
+    .m-detail-name-row {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .m-detail-name {
+      font-family: 'Noto Serif SC', serif;
+      font-size: 18px; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .m-detail-tag {
+      display: inline-block; font-size: 10px;
+      padding: 2px 10px; border-radius: 4px;
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.55);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    /* 詳情屬性列 */
+    .m-detail-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+    .m-attr {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 12px; margin-bottom: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 8px; font-size: 12px;
+    }
+    .m-attr-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+    .m-attr-text { color: var(--text); line-height: 1.5; }
+
+    .m-detail-desc {
+      font-size: 12px; color: rgba(255,255,255,0.45);
+      line-height: 1.75; padding: 10px 0 14px;
+    }
+
+    /* 操作按鈕列 */
+    .m-detail-actions {
+      display: flex; gap: 8px; padding: 12px 16px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+    .m-action-btn {
+      flex: 1; padding: 10px 8px;
+      border-radius: 8px; border: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; font-weight: 700;
+      cursor: pointer; transition: opacity .12s;
+      color: white;
+    }
+    .m-action-btn:hover { opacity: .85; }
+    .m-action-btn.primary { background: linear-gradient(135deg, #2a4a8a, #1e3570); }
+    .m-action-btn.secondary { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); color: var(--text); }
+
+    /* 空狀態 */
+    .m-empty {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%;
+      color: rgba(255,255,255,0.2); font-size: 12px; gap: 10px;
+    }
+    .m-empty-icon { font-size: 40px; opacity: .3; }
+
+    /* 全寬模式（F3 測試面板用，無側欄詳情） */
+    .modal-body.fullwidth .m-sidebar,
+    .modal-body.fullwidth .m-detail { display: none; }
+    .modal-body.fullwidth .m-content { border-left: none; }
+
+    /* Spinner */
+    .spin { width: 14px; height: 14px; border: 2px solid rgba(232,200,115,0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Upload bar */
+    .upload-bar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 7px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    .up-btn { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 5px 13px; border-radius: 20px; border: 1px solid rgba(232,200,115,0.42); background: rgba(0,0,0,0.62); color: var(--accent); cursor: pointer; letter-spacing: .05em; backdrop-filter: blur(6px); transition: background .15s; white-space: nowrap; }
+    .up-btn:hover { background: rgba(232,200,115,0.12); }
+    .up-btn.danger { border-color: rgba(255,77,106,0.42); color: rgba(255,130,130,0.9); }
+    .up-btn.danger:hover { background: rgba(255,77,106,0.1); }
+    input[type="file"] { display: none; }
+    .key-row { display: none; gap: 5px; flex-wrap: wrap; justify-content: center; position: absolute; bottom: 52px; left: 50%; transform: translateX(-50%); z-index: 5; }
+    .key-row.open { display: flex; }
+
+    /* Toast */
+    .hud-toast { position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%) translateY(8px); background: rgba(0,0,0,0.78); border: 1px solid var(--border2); border-radius: 6px; padding: 8px 22px; font-size: 12px; color: var(--accent); letter-spacing: .1em; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 30; white-space: nowrap; }
+    .hud-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Panel inner UI ── */
+    .p-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .p-btn { font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 4px 12px; border-radius: 4px; border: 0.5px solid var(--border2); background: rgba(232,200,115,0.08); color: var(--accent); cursor: pointer; transition: background .12s; }
+    .p-btn:hover { background: rgba(232,200,115,0.16); }
+    .p-btn.danger { border-color: rgba(255,77,106,0.4); color: rgba(255,120,130,0.9); background: rgba(255,77,106,0.06); }
+    .p-input { flex: 1; background: rgba(0,0,0,0.35); border: 0.5px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); outline: none; min-width: 0; transition: border-color .12s; }
+    .p-input:focus { border-color: var(--border2); }
+    .p-input::placeholder { color: rgba(255,255,255,0.2); }
+    .p-md { width: 100%; height: 300px; background: rgba(0,0,0,0.35); border: 0.5px solid rgba(232,200,115,0.25); border-radius: 4px; padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); resize: none; outline: none; line-height: 1.75; transition: border-color .12s; }
+    .p-md:focus { border-color: rgba(232,200,115,0.55); }
+    .p-md::placeholder { color: rgba(255,255,255,0.2); }
+    .p-hint { margin-top: 6px; font-size: 10px; color: rgba(255,255,255,0.25); }
+    .p-list { list-style: none; }
+    .p-list li { padding: 8px 0; border-bottom: 0.5px solid rgba(255,255,255,0.06); cursor: pointer; font-size: 11px; color: rgba(240,234,216,0.55); display: flex; align-items: center; gap: 8px; transition: color .12s; }
+    .p-list li:hover { color: var(--text); }
+    .p-list li .p-tag { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(232,200,115,0.1); color: var(--accent); border: 0.5px solid rgba(232,200,115,0.25); white-space: nowrap; }
+    .p-commit { padding: 10px 0; border-bottom: 0.5px solid rgba(255,255,255,0.06); }
+    .p-commit-top { font-size: 11px; margin-bottom: 2px; }
+    .p-commit-sub { font-size: 10px; color: rgba(255,255,255,0.35); }
+    .p-bar-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; }
+    .p-bar-track { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+    .p-bar-fill { height: 100%; background: linear-gradient(to right, var(--accent), var(--accent2)); border-radius: 2px; }
+    .p-mgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+    .p-mod { background: rgba(255,255,255,0.04); border: 0.5px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 6px 5px; cursor: pointer; font-size: 9px; transition: border-color .12s; }
+    .p-mod:hover { border-color: rgba(255,255,255,0.3); }
+    .p-mod.selected { border-color: var(--accent); background: rgba(232,200,115,0.06); }
+    .p-mod.compat { border-color: #00C97A; background: rgba(0,201,122,0.06); animation: pok 1s infinite alternate; }
+    .p-mod.incompat { border-color: #FF4D6A; animation: perr .5s infinite alternate; }
+    @keyframes pok  { from { border-color: rgba(0,201,122,0.4); } to { border-color: rgba(0,201,122,0.9); box-shadow: 0 0 6px rgba(0,201,122,0.25); } }
+    @keyframes perr { from { border-color: rgba(255,77,106,0.4); } to { border-color: rgba(255,77,106,0.9); box-shadow: 0 0 6px rgba(255,77,106,0.25); } }
+    .p-connect { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .p-slot { flex: 1; min-width: 120px; border: 0.5px dashed rgba(232,200,115,0.3); border-radius: 4px; padding: 7px 10px; font-size: 10px; color: rgba(255,255,255,0.3); }
+    .p-slot.filled { border-style: solid; border-color: var(--border2); color: var(--text); }
+    .p-slot.compat { border-color: #00C97A; color: #00C97A; }
+    .p-slot.incompat { border-color: #FF4D6A; color: #FF4D6A; }
+    .tree-dom { color: var(--accent); font-weight: 700; line-height: 2.2; font-size: 12px; cursor: pointer; }
+    .tree-top { color: rgba(169,127,232,0.85); padding-left: 14px; line-height: 2.2; font-size: 12px; cursor: pointer; }
+    .tree-doc { color: rgba(240,234,216,0.4); padding-left: 30px; line-height: 2.2; font-size: 11px; cursor: pointer; }
+    .tree-doc:hover, .tree-top:hover { opacity: .75; }
+    .p-spinner { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; padding: 20px 0; }
+    .spin { width: 14px; height: 14px; border: 2px solid rgba(232,200,115,0.2); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .p-err { color: rgba(255,77,106,0.8); font-size: 11px; padding: 12px 0; }
+    .p-status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; background: #00C97A; }
+    .p-status-dot.wip { background: var(--accent); }
+    .p-status-dot.blocked { background: #FF4D6A; }
+  </style>
+</head>
+<body>
+
+<div class="hud" id="hud">
+  <div class="hud-bg" id="hud-bg"></div>
+  <div class="hud-vignette"></div>
+
+  <!-- Minimap -->
+  <div class="hud-el minimap-wrap">
+    <div class="compass"><div class="compass-needle"></div><div class="compass-n">N</div></div>
+    <div class="mm-ring" id="mm-ring">
+      <img id="mm-img" src="" alt="minimap"/>
+      <svg id="mm-svg" viewBox="0 0 130 130" xmlns="http://www.w3.org/2000/svg">
+        <rect width="130" height="130" fill="#1a3244"/>
+        <ellipse cx="65" cy="65" rx="57" ry="53" fill="#1e3d28" opacity=".68"/>
+        <polygon points="28,38 70,20 104,50 90,92 36,86" fill="#23472e" opacity=".6"/>
+        <path d="M6,65 Q38,55 65,65 Q92,75 124,65" stroke="#8a7a50" stroke-width="4" fill="none" opacity=".5"/>
+        <path d="M65,6 Q70,38 65,65 Q60,92 65,124" stroke="#8a7a50" stroke-width="3" fill="none" opacity=".45"/>
+        <rect x="43" y="43" width="14" height="10" rx="1" fill="#3a5a70" opacity=".8"/>
+        <rect x="73" y="49" width="10" height="8" rx="1" fill="#3a5a70" opacity=".8"/>
+        <polygon points="39,27 43.5,19 48,27" fill="#E8C873" opacity=".9"/>
+        <rect x="41.5" y="27" width="4" height="7" fill="#E8C873" opacity=".9"/>
+        <circle cx="65" cy="65" r="5.5" fill="#4fc3f7" stroke="white" stroke-width="2"/>
+        <polygon points="65,55 61.5,61 68.5,61" fill="white" opacity=".85"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Quest Tracker -->
+  <div class="hud-el quest-wrap">
+    <div class="quest-lbl">追蹤任務</div>
+    <div id="quest-list">
+      <div class="task-item active" id="q0" onclick="selQ(0)">
+        <div class="task-gem lit" id="qg0"></div>
+        <div><div class="task-name" id="qn0">載入中…</div><div class="task-sub"><span class="task-arr">▼</span><span id="qs0"></span></div></div>
+      </div>
+      <div class="task-item" id="q1" onclick="selQ(1)" style="display:none">
+        <div class="task-gem" id="qg1"></div>
+        <div><div class="task-name" id="qn1"></div><div class="task-sub"><span class="task-arr">▼</span><span id="qs1"></span></div></div>
+      </div>
+      <div class="task-item" id="q2" onclick="selQ(2)" style="display:none">
+        <div class="task-gem" id="qg2"></div>
+        <div><div class="task-name" id="qn2"></div><div class="task-sub"><span class="task-arr">▶</span><span id="qs2"></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hotkeys -->
+  <div class="hud-el hk-wrap">
+    <div class="hk" id="hkb-f1" onclick="openModal('f1')"><div class="hk-ico"><img id="hki-f1" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect x="3" y="3" width="20" height="20" rx="3" stroke="#E8C873" stroke-width="1.5" fill="rgba(232,200,115,0.08)"/><line x1="7" y1="9" x2="19" y2="9" stroke="#E8C873" stroke-width="1.2" stroke-linecap="round"/><line x1="7" y1="13" x2="16" y2="13" stroke="#E8C873" stroke-width="1.2" stroke-linecap="round"/><line x1="7" y1="17" x2="18" y2="17" stroke="#E8C873" stroke-width="1.2" stroke-linecap="round"/></svg><span class="hk-kb">F1</span></div><div class="hk-lbl">日誌</div></div>
+    <div class="hk" id="hkb-f2" onclick="openModal('f2')"><div class="hk-ico"><img id="hki-f2" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><circle cx="13" cy="10" r="4" stroke="#4fc3f7" stroke-width="1.5" fill="rgba(79,195,247,0.1)"/><circle cx="7" cy="13" r="3" stroke="#4fc3f7" stroke-width="1.2" fill="rgba(79,195,247,0.08)"/><circle cx="19" cy="13" r="3" stroke="#4fc3f7" stroke-width="1.2" fill="rgba(79,195,247,0.08)"/><path d="M5,22 Q7,17 13,17 Q19,17 21,22" stroke="#4fc3f7" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg><span class="hk-kb">F2</span><span class="hk-notif" id="f2-badge" style="display:none">0</span></div><div class="hk-lbl">大廳</div></div>
+    <div class="hk" id="hkb-f3" onclick="openModal('f3')"><div class="hk-ico"><img id="hki-f3" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect x="4" y="6" width="18" height="14" rx="4" stroke="#f472b6" stroke-width="1.4" fill="rgba(244,114,182,0.08)"/><circle cx="9" cy="12" r="2.5" fill="#f472b6" opacity=".8"/><circle cx="17" cy="12" r="2.5" fill="#f472b6" opacity=".8"/><line x1="4" y1="10" x2="1" y2="7" stroke="#f472b6" stroke-width="1.4" stroke-linecap="round"/><line x1="22" y1="10" x2="25" y2="7" stroke="#f472b6" stroke-width="1.4" stroke-linecap="round"/><line x1="9" y1="20" x2="9" y2="23" stroke="#f472b6" stroke-width="1.4" stroke-linecap="round"/><line x1="17" y1="20" x2="17" y2="23" stroke="#f472b6" stroke-width="1.4" stroke-linecap="round"/></svg><span class="hk-kb">F3</span></div><div class="hk-lbl">測試</div></div>
+    <div class="hk" id="hkb-f4" onclick="openModal('f4')"><div class="hk-ico"><img id="hki-f4" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><polygon points="13,3 15.5,9.5 22.5,10 17.5,14.5 19.5,21.5 13,18 6.5,21.5 8.5,14.5 3.5,10 10.5,9.5" stroke="#F5A623" stroke-width="1.3" fill="rgba(245,166,35,0.12)"/></svg><span class="hk-kb">F4</span></div><div class="hk-lbl">專案時程</div></div>
+    <div class="hk" id="hkb-b" onclick="openModal('b')"><div class="hk-ico"><img id="hki-b" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect x="3" y="6" width="7" height="7" rx="1" stroke="#FF4D6A" stroke-width="1.2" fill="rgba(255,77,106,0.1)"/><rect x="13" y="6" width="7" height="7" rx="1" stroke="#00C97A" stroke-width="1.2" fill="rgba(0,201,122,0.1)"/><rect x="3" y="16" width="7" height="7" rx="1" stroke="#3A7FD5" stroke-width="1.2" fill="rgba(58,127,213,0.1)"/><rect x="13" y="16" width="7" height="7" rx="1" stroke="#F5A623" stroke-width="1.2" fill="rgba(245,166,35,0.1)"/></svg><span class="hk-kb">B</span></div><div class="hk-lbl">背包</div></div>
+    <div class="hk" id="hkb-f5" onclick="openModal('f5')"><div class="hk-ico"><img id="hki-f5" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><circle cx="11" cy="11" r="6" stroke="#A97FE8" stroke-width="1.5" fill="rgba(169,127,232,0.1)"/><line x1="16" y1="16" x2="22" y2="22" stroke="#A97FE8" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="11" x2="14" y2="11" stroke="#A97FE8" stroke-width="1.2" stroke-linecap="round"/><line x1="11" y1="8" x2="11" y2="14" stroke="#A97FE8" stroke-width="1.2" stroke-linecap="round"/></svg><span class="hk-kb">F5</span></div><div class="hk-lbl">圖鑑</div></div>
+        <div class="hk" id="hkb-m" onclick="openModal('m')"><div class="hk-ico"><img id="hki-m" src="" alt=""/><svg width="26" height="26" viewBox="0 0 26 26" fill="none"><circle cx="13" cy="13" r="9" stroke="#4ECDC4" stroke-width="1.3" fill="rgba(78,205,196,0.08)"/><ellipse cx="13" cy="13" rx="4" ry="9" stroke="#4ECDC4" stroke-width="1" fill="none"/><line x1="4" y1="13" x2="22" y2="13" stroke="#4ECDC4" stroke-width="1" stroke-dasharray="2,2"/><circle cx="13" cy="13" r="2" fill="#4ECDC4"/></svg><span class="hk-kb">M</span></div><div class="hk-lbl">地圖</div></div>
+    <div class="hk" id="hkb-esc" onclick="openSettings()">
+      <div class="hk-ico" style="width:40px;height:40px;border-color:rgba(148,163,184,0.35);background:rgba(30,30,40,0.6)">
+        <img id="hki-esc" src="" alt=""/>
+        <svg width="22" height="22" viewBox="0 0 26 26" fill="none">
+          <circle cx="13" cy="13" r="9" stroke="#94a3b8" stroke-width="1.4" fill="rgba(148,163,184,0.08)"/>
+          <circle cx="13" cy="13" r="3" fill="#94a3b8" opacity=".8"/>
+          <circle cx="13" cy="7"  r="1.5" fill="#94a3b8" opacity=".5"/>
+          <circle cx="13" cy="19" r="1.5" fill="#94a3b8" opacity=".5"/>
+          <circle cx="7"  cy="13" r="1.5" fill="#94a3b8" opacity=".5"/>
+          <circle cx="19" cy="13" r="1.5" fill="#94a3b8" opacity=".5"/>
+        </svg>
+        <span class="hk-kb" style="color:#94a3b8">ESC</span>
+      </div>
+      <div class="hk-lbl" style="color:rgba(148,163,184,0.65)">設定</div>
+    </div>
+  </div>
+
+  <!-- Character cards -->
+  <div class="hud-el char-wrap">
+    <div class="cc active" onclick="selC(0)"><div class="cc-info"><div class="cc-name">開拓者</div><div class="cc-hp"><div class="cc-hp-fill" style="width:100%"></div></div></div><div class="cc-av"><img id="avi-0" src="" alt=""/><svg viewBox="0 0 52 52"><rect width="52" height="52" fill="#1e3050"/><circle cx="26" cy="18" r="10" fill="#4a6fa5" opacity=".85"/><path d="M10,52 Q26,36 42,52" fill="#3a5a80" opacity=".8"/><text x="26" y="23" text-anchor="middle" font-size="10" fill="white" font-weight="bold" font-family="sans-serif">KT</text></svg></div></div>
+    <div class="cc" onclick="selC(1)"><div class="cc-info"><div class="cc-name">Alice</div><div class="cc-hp"><div class="cc-hp-fill" style="width:85%"></div></div></div><div class="cc-av"><img id="avi-1" src="" alt=""/><svg viewBox="0 0 52 52"><rect width="52" height="52" fill="#1e2840"/><circle cx="26" cy="18" r="10" fill="#5a4a80" opacity=".85"/><path d="M10,52 Q26,36 42,52" fill="#4a3a70" opacity=".8"/><text x="26" y="23" text-anchor="middle" font-size="10" fill="white" font-weight="bold" font-family="sans-serif">AL</text></svg></div></div>
+    <div class="cc" onclick="selC(2)"><div class="cc-info"><div class="cc-name">Bob</div><div class="cc-hp"><div class="cc-hp-fill" style="width:62%"></div></div></div><div class="cc-av"><img id="avi-2" src="" alt=""/><svg viewBox="0 0 52 52"><rect width="52" height="52" fill="#1e2820"/><circle cx="26" cy="18" r="10" fill="#3a6040" opacity=".85"/><path d="M10,52 Q26,36 42,52" fill="#2a5030" opacity=".8"/><text x="26" y="23" text-anchor="middle" font-size="10" fill="white" font-weight="bold" font-family="sans-serif">BB</text></svg></div></div>
+  </div>
+
+  <!-- Settings Modal (ESC) -->
+  <div class="modal-backdrop" id="settings-backdrop" onclick="closeSettings()" style="z-index:40"></div>
+  <div id="settings-modal" style="
+    position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%) scale(0.94);
+    width:min(760px,90%);max-height:82vh;
+    background:rgba(6,10,20,0.98);
+    border:1px solid rgba(148,163,184,0.2);
+    border-radius:12px;display:flex;flex-direction:column;overflow:hidden;
+    z-index:41;opacity:0;pointer-events:none;
+    transition:opacity .2s,transform .2s;
+  ">
+    <div style="display:flex;align-items:center;padding:0 24px;height:52px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.3);">
+      <div style="position:absolute;left:50%;transform:translateX(-50%);font-family:'Noto Serif SC',serif;font-size:16px;font-weight:700;color:var(--text);letter-spacing:.12em">⚙ 系統設定</div>
+      <button onclick="closeSettings()" style="margin-left:auto;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+    </div>
+    <div style="display:flex;flex:1;overflow:hidden;">
+      <!-- 設定側欄 -->
+      <div id="cfg-sidebar" style="width:160px;flex-shrink:0;background:rgba(0,0,0,0.35);border-right:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;padding:12px 0;gap:2px;"></div>
+      <!-- 設定內容區 -->
+      <div id="cfg-content" style="flex:1;overflow-y:auto;padding:20px 24px;"></div>
+    </div>
+    <div style="display:flex;gap:10px;padding:14px 24px;border-top:1px solid rgba(255,255,255,0.08);flex-shrink:0;background:rgba(0,0,0,0.2);">
+      <button onclick="saveSettings()" style="flex:1;padding:10px;border-radius:8px;border:none;background:linear-gradient(135deg,#2a4a8a,#1e3570);color:white;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;">儲存設定</button>
+      <button onclick="resetSettings()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.55);font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;">重設預設</button>
+      <button onclick="testConnection()" style="padding:10px 18px;border-radius:8px;border:1px solid rgba(232,200,115,0.35);background:rgba(232,200,115,0.08);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;">測試連線</button>
+    </div>
+  </div>
+
+  <!-- Full-screen Modal -->
+  <div class="modal-backdrop" id="backdrop" onclick="closeModal()"></div>
+  <div class="modal" id="modal">
+    <!-- 頂部標題列 -->
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">背包</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <!-- 三欄主體 -->
+    <div class="modal-body" id="modal-body">
+      <!-- 左：分類側欄 -->
+      <div class="m-sidebar" id="m-sidebar"></div>
+      <!-- 中：內容區 -->
+      <div class="m-content" id="m-content">
+        <div class="m-toolbar" id="m-toolbar"></div>
+        <div class="m-grid-wrap" id="m-grid-wrap">
+          <div class="m-empty"><div class="m-empty-icon">📦</div>選擇左側分類</div>
+        </div>
+      </div>
+      <!-- 右：詳情面板 -->
+      <div class="m-detail" id="m-detail">
+        <div class="m-detail-img" id="m-detail-img">
+          <div class="m-detail-big-icon" id="m-detail-icon">📦</div>
+        </div>
+        <div class="m-detail-name-row">
+          <div class="m-detail-name" id="m-detail-name">選擇一個項目</div>
+          <span class="m-detail-tag" id="m-detail-tag">—</span>
+        </div>
+        <div class="m-detail-body" id="m-detail-body">
+          <div class="m-empty" style="height:auto;padding:20px 0">
+            <div style="font-size:12px;color:rgba(255,255,255,0.2)">點擊中間的項目<br>查看詳細資訊</div>
+          </div>
+        </div>
+        <div class="m-detail-actions" id="m-detail-actions" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload bar -->
+  <div class="upload-bar">
+    <label class="up-btn" for="inp-bg">↑ 背景圖</label><input type="file" id="inp-bg" accept="image/*" onchange="upBg(event)"/>
+    <label class="up-btn" for="inp-mm">↑ 雷達圖</label><input type="file" id="inp-mm" accept="image/*" onchange="upMm(event)"/>
+    <button class="up-btn" onclick="toggleKeys()">↑ 換圖示 ▾</button>
+    <label class="up-btn" for="inp-theme">↑ theme.json</label><input type="file" id="inp-theme" accept=".json,application/json" onchange="upTheme(event)"/>
+    <button class="up-btn danger" onclick="clearAll()">清除全部</button>
+  </div>
+  <div class="key-row" id="key-row">
+    <label class="up-btn" style="font-size:9px" for="ki-f1">F1</label><input type="file" id="ki-f1" accept="image/*" onchange="upKey(event,'f1')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-f2">F2</label><input type="file" id="ki-f2" accept="image/*" onchange="upKey(event,'f2')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-f3">F3</label><input type="file" id="ki-f3" accept="image/*" onchange="upKey(event,'f3')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-f4">F4</label><input type="file" id="ki-f4" accept="image/*" onchange="upKey(event,'f4')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-b">B</label><input type="file" id="ki-b" accept="image/*" onchange="upKey(event,'b')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-m">M</label><input type="file" id="ki-m" accept="image/*" onchange="upKey(event,'m')"/>
+    <label class="up-btn" style="font-size:9px" for="ki-a0">角色0</label><input type="file" id="ki-a0" accept="image/*" onchange="upAv(event,0)"/>
+    <label class="up-btn" style="font-size:9px" for="ki-a1">角色1</label><input type="file" id="ki-a1" accept="image/*" onchange="upAv(event,1)"/>
+    <label class="up-btn" style="font-size:9px" for="ki-a2">角色2</label><input type="file" id="ki-a2" accept="image/*" onchange="upAv(event,2)"/>
+  </div>
+
+  <div class="hud-toast" id="toast"></div>
+</div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────────────────
+   LLM WIKI — HUD v4 (Live Data)
+   所有面板資料從後端 API 即時載入，不再硬編碼。
+   後端：npm run dev  →  http://localhost:3001
+───────────────────────────────────────────────────────────────────────────── */
+
+const API = 'http://localhost:3001';
+// api() 使用 window.API_OVERRIDE（來自設定）或預設值
+function getAPIBase() { return window.API_OVERRIDE || API; }
+
+// ── API helper ────────────────────────────────────────────────────────────────
+
+async function api(path, opts = {}) {
+  try {
+    const res  = await fetch(getAPIBase() + path, opts);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || res.statusText);
+    return json;
+  } catch (e) {
+    throw e;
+  }
+}
+
+function spinner() {
+  return '<div class="p-spinner"><div class="spin"></div>載入中…</div>';
+}
+function errMsg(e) {
+  return `<div class="p-err">⚠ 無法連線後端：${e.message}<br>請確認 <code>npm run dev</code> 已啟動（port 3001）</div>`;
+}
+
+// ── Modal 三欄控制器 ──────────────────────────────────────────────────────────
+
+const PANEL_TITLES = {
+  f1:'個人日誌', f2:'協作大廳', f3:'測試套件監控',
+  f4:'目標專案時程', f5:'知識圖鑑', b:'模組背包 — I/O 週期表', m:'知識雷達'
+};
+
+const $ = id => document.getElementById(id);
+
+function openModal(id) {
+  document.querySelectorAll('.hk').forEach(b => b.classList.remove('active'));
+  $('hkb-' + id)?.classList.add('active');
+  $('modal-title').textContent = PANEL_TITLES[id] || id;
+
+  // 重置詳情欄
+  $('m-detail-icon').textContent = '📦';
+  $('m-detail-name').textContent = '選擇一個項目';
+  $('m-detail-tag').textContent  = '—';
+  $('m-detail-body').innerHTML   = '<div class="m-empty" style="height:auto;padding:24px 0"><div style="font-size:12px;color:rgba(255,255,255,0.2)">點擊中間項目<br>查看詳細資訊</div></div>';
+  $('m-detail-actions').style.display = 'none';
+
+  const body = $('modal-body');
+  if (id === 'f3') {
+    body.classList.add('fullwidth');
+    $('m-grid-wrap').innerHTML = `<iframe src="panel-tests.html" style="width:100%;height:100%;border:none;display:block;" title="F3 測試面板"></iframe>`;
+    $('m-sidebar').innerHTML   = '';
+    $('m-toolbar').innerHTML   = '';
+  } else {
+    body.classList.remove('fullwidth');
+  }
+
+  $('backdrop').classList.add('open');
+  $('modal').classList.add('open');
+  PANELS[id]();
+}
+
+function closeModal() {
+  $('backdrop').classList.remove('open');
+  $('modal').classList.remove('open');
+  document.querySelectorAll('.hk').forEach(b => b.classList.remove('active'));
+}
+
+// ── 三欄 helper ───────────────────────────────────────────────────────────────
+
+function renderSidebar(categories, activeId, onSelect) {
+  // 儲存到 window 避免閉包序列化失效
+  window._catCb   = onSelect;
+  window._catDefs = categories;
+
+  function buildSb(curActive) {
+    $('m-sidebar').innerHTML = categories.map(c => `
+      <div class="m-cat ${c.id === curActive ? 'active' : ''}"
+           data-catid="${c.id}"
+           onclick="window._catCb('${c.id}'); _setSbActive('${c.id}')">
+        <div class="m-cat-icon">${c.icon}</div>
+        <div class="m-cat-lbl">${c.label}</div>
+      </div>
+      ${c.divider ? '<div class="m-cat-divider"></div>' : ''}
+    `).join('');
+  }
+
+  window._setSbActive = (id) => {
+    document.querySelectorAll('.m-cat').forEach(el =>
+      el.classList.toggle('active', el.dataset.catid === id)
+    );
+  };
+
+  buildSb(activeId);
+}
+
+function renderToolbar(html) { $('m-toolbar').innerHTML = html; }
+function renderGrid(html)    { $('m-grid-wrap').innerHTML = html; }
+
+function renderDetail({ icon, name, tag, attrs, desc, actions }) {
+  $('m-detail-icon').textContent = icon || '📦';
+  $('m-detail-name').textContent = name || '—';
+  $('m-detail-tag').textContent  = tag  || '—';
+  $('m-detail-body').innerHTML = `
+    ${attrs ? attrs.map(a => `
+      <div class="m-attr">
+        <span class="m-attr-icon">${a.icon}</span>
+        <span class="m-attr-text">${a.text}</span>
+      </div>`).join('') : ''}
+    ${desc ? `<div class="m-detail-desc">${desc}</div>` : ''}
+  `;
+  if (actions && actions.length) {
+    $('m-detail-actions').style.display = 'flex';
+    $('m-detail-actions').innerHTML = actions.map(a =>
+      `<button class="m-action-btn ${a.cls||'secondary'}" onclick="${a.onclick}">${a.label}</button>`
+    ).join('');
+  } else {
+    $('m-detail-actions').style.display = 'none';
+  }
+}
+
+function errGrid(e) {
+  renderGrid(`<div class="m-empty"><div class="m-empty-icon">⚠</div><div style="font-size:11px;text-align:center">無法連線後端<br><span style="opacity:.5">${e.message}</span><br><br><span style="opacity:.35;font-size:10px">npm run dev → port 3001</span></div></div>`);
+}
+
+// ── PANELS ────────────────────────────────────────────────────────────────────
+
+const PANELS = {
+
+  // ── F1: 個人日誌 ─────────────────────────────────────────────────────────
+  async f1() {
+    let notes = [], currentFile = null;
+    const today = new Date().toISOString().slice(0,10);
+    const defFile = `note-${today}.md`;
+
+    renderSidebar([
+      { id:'all',   icon:'📋', label:'所有筆記' },
+      { id:'new',   icon:'✏️',  label:'新增筆記' },
+      { id:'today', icon:'📅', label:'今日' },
+    ], 'all', (id) => f1SelectCat(id));
+
+    renderToolbar(`
+      <input class="m-search" id="f1-fn" value="${defFile}" placeholder="筆記檔名 (note-YYYY-MM-DD.md)" style="max-width:280px"/>
+      <button class="m-action-btn primary" style="flex:none;padding:7px 16px;font-size:11px" onclick="f1Save()">儲存 Ctrl+S</button>
+      <button class="m-action-btn secondary" id="f1-del" onclick="f1Delete()" style="flex:none;padding:7px 14px;font-size:11px;display:none">🗑 刪除</button>
+      <span style="font-size:10px;color:rgba(255,255,255,0.25);margin-left:6px" id="f1-saved"></span>
+    `);
+
+    async function loadNotes() {
+      try {
+        const d = await api('/api/notes');
+        notes = d.notes || [];
+        renderNoteGrid();
+      } catch(e) { errGrid(e); }
+    }
+
+    function renderNoteGrid() {
+      if (!notes.length) {
+        renderGrid(`<div class="m-empty"><div class="m-empty-icon">📝</div><div>尚無筆記<br><span style="opacity:.4;font-size:10px">點上方「儲存」建立第一篇</span></div></div>`);
+        return;
+      }
+      renderGrid(`<div class="m-item-grid">${notes.map(n => `
+        <div class="m-item ${n.filename===currentFile?'active':''}" onclick="f1Open('${n.filename}')">
+          <div class="m-item-icon">📄</div>
+          <div class="m-item-name">${n.filename.replace('.md','')}</div>
+          <div class="m-item-badge">${new Date(n.modified).toLocaleDateString('zh-TW',{month:'2-digit',day:'2-digit'})}</div>
+        </div>`).join('')}</div>`);
+    }
+
+    window.f1Open = async (fn) => {
+      currentFile = fn;
+      $('f1-fn').value = fn;
+      $('f1-del').style.display = '';
+      try {
+        const d = await api('/api/notes/' + fn);
+        renderDetail({
+          icon:'📄', name:fn.replace('.md',''), tag:'Markdown 筆記',
+          attrs:[{ icon:'📅', text:'使用下方編輯器撰寫' }], desc:'',
+          actions:[{ label:'儲存', cls:'primary', onclick:'f1Save()' }]
+        });
+        renderGrid(`<div style="height:100%;display:flex;flex-direction:column;padding:14px;gap:8px">
+          <textarea id="f1-editor" style="flex:1;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#f0ead8;resize:none;outline:none;line-height:1.8" onkeydown="if(event.ctrlKey&&event.key==='s'){event.preventDefault();f1Save();}">${d.content}</textarea>
+        </div>`);
+        renderNoteGrid();
+      } catch(e) { toast('讀取失敗：'+e.message); }
+    };
+
+    window.f1Save = async () => {
+      const fn = $('f1-fn')?.value?.trim() || defFile;
+      const editor = $('f1-editor');
+      const content = editor ? editor.value : '';
+      if (!fn.endsWith('.md')) { toast('檔名必須以 .md 結尾'); return; }
+      try {
+        await api('/api/notes/'+fn, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({content}) });
+        currentFile = fn;
+        $('f1-saved').textContent = '✓ ' + new Date().toLocaleTimeString('zh-TW');
+        await loadNotes();
+        toast('筆記已儲存：'+fn);
+      } catch(e) { toast('儲存失敗：'+e.message); }
+    };
+
+    window.f1Delete = async () => {
+      if (!currentFile || !confirm('確定刪除 '+currentFile+'?')) return;
+      try {
+        await api('/api/notes/'+currentFile, { method:'DELETE' });
+        currentFile = null;
+        $('f1-del').style.display = 'none';
+        renderDetail({ icon:'📄', name:'選擇一個項目', tag:'—', attrs:[], desc:'' });
+        await loadNotes();
+        toast('已刪除');
+      } catch(e) { toast('刪除失敗'); }
+    };
+
+    window.f1SelectCat = (id) => {
+      if (id === 'new') {
+        // 新增筆記：清空編輯器，設定今日檔名
+        currentFile = null;
+        $('f1-fn').value = defFile;
+        $('f1-del') && ($('f1-del').style.display = 'none');
+        renderDetail({
+          icon:'✏️', name:'新增筆記', tag:'Markdown',
+          attrs:[{ icon:'📝', text:'在左側輸入檔名後開始撰寫' }], desc:'',
+          actions:[{ label:'儲存', cls:'primary', onclick:'f1Save()' }]
+        });
+        renderGrid(`<div style="height:100%;display:flex;flex-direction:column;padding:14px;gap:8px">
+          <textarea id="f1-editor" style="flex:1;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#f0ead8;resize:none;outline:none;line-height:1.8"
+            onkeydown="if(event.ctrlKey&&event.key==='s'){event.preventDefault();f1Save();}"
+            placeholder="# 新筆記標題\n\n開始撰寫…"></textarea>
+        </div>`);
+      } else if (id === 'today') {
+        // 今日筆記：篩選今日
+        const todayStr = new Date().toISOString().slice(0,10);
+        const todayNotes = notes.filter(n => n.filename.includes(todayStr));
+        if (!todayNotes.length) {
+          renderGrid(`<div class="m-empty"><div class="m-empty-icon">📅</div><div>今日尚無筆記<br><span style="opacity:.4;font-size:10px">切換「新增筆記」建立</span></div></div>`);
+          renderDetail({ icon:'📅', name:'今日筆記', tag:'—', attrs:[{ icon:'📝', text:'今日尚無筆記' }], desc:'' });
+        } else {
+          renderGrid(`<div class="m-item-grid">${todayNotes.map(n => `
+            <div class="m-item" onclick="f1Open('${n.filename}')">
+              <div class="m-item-icon">📄</div>
+              <div class="m-item-name">${n.filename.replace('.md','')}</div>
+              <div class="m-item-badge">${new Date(n.modified).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}</div>
+            </div>`).join('')}</div>`);
+          renderDetail({ icon:'📅', name:'今日筆記', tag:todayNotes.length+' 筆', attrs:[{ icon:'📊', text:`共 ${todayNotes.length} 篇` }], desc:'' });
+        }
+      } else {
+        // 全部筆記
+        renderNoteGrid();
+        renderDetail({ icon:'📋', name:'所有筆記', tag:notes.length+' 筆', attrs:[{ icon:'📊', text:`共 ${notes.length} 篇` }], desc:'' });
+      }
+    };
+
+    await loadNotes();
+  },
+
+  // ── F2: 協作大廳 ──────────────────────────────────────────────────────
+  async f2() {
+    renderSidebar([
+      { id:'commits', icon:'🔗', label:'Commit 紀錄', divider:true },
+      { id:'status',  icon:'📊', label:'工作狀態' },
+    ], 'commits', (id) => f2SelectCat(id));
+    renderGrid(`<div class="m-empty"><div class="spin"></div></div>`);
+    renderToolbar(`<span style="font-size:11px;color:rgba(255,255,255,0.35)">載入 Git 記錄…</span>`);
+
+    try {
+      const [log, status] = await Promise.all([
+        api('/api/git/commits?limit=50'),
+        api('/api/git/status'),
+      ]);
+      const commits = log.commits || [];
+      const badge = $('f2-badge');
+      if (badge && status.ahead > 0) { badge.textContent = status.ahead; badge.style.display = 'flex'; }
+
+      renderToolbar(`
+        <span style="font-size:11px;color:rgba(255,255,255,0.4)">分支：</span>
+        <span style="font-size:13px;color:var(--accent);font-weight:700">${status.branch || 'unknown'}</span>
+        ${status.ahead  ? `<span style="font-size:10px;color:#4ade80;margin-left:8px">↑ ${status.ahead} 超前</span>` : ''}
+        ${status.behind ? `<span style="font-size:10px;color:#f87171;margin-left:8px">↓ ${status.behind} 落後</span>` : ''}
+        ${(status.modified||[]).length ? `<span style="font-size:10px;color:var(--accent);margin-left:8px">${status.modified.length} 已修改</span>` : ''}
+        <button class="m-action-btn secondary" style="margin-left:auto;flex:none;padding:6px 14px;font-size:11px" onclick="PANELS.f2()">重新整理</button>
+      `);
+
+      if (!commits.length) {
+        renderGrid(`<div class="m-empty"><div class="m-empty-icon">📭</div><div>尚無 Commit 記錄</div></div>`);
+        return;
+      }
+
+      renderGrid(`<div style="display:flex;flex-direction:column;gap:4px;padding:4px 0">
+        ${commits.map((c,i) => `
+          <div class="m-item" style="aspect-ratio:unset;flex-direction:row;align-items:center;gap:12px;padding:12px 16px;border-radius:8px;height:auto" onclick="f2Show(${i})">
+            <div style="width:8px;height:8px;border-radius:50%;background:#4fc3f7;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;color:#f0ead8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.message}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:2px">${c.author} · ${new Date(c.date).toLocaleString('zh-TW')}</div>
+            </div>
+            <code style="font-size:10px;color:#4fc3f7;flex-shrink:0">${c.hash}</code>
+          </div>`).join('')}
+      </div>`);
+
+      const allCommits = commits;
+      window.f2Show = (i) => {
+        const c = allCommits[i];
+        renderDetail({
+          icon:'🔗', name:c.hash, tag:'Git Commit',
+          attrs:[
+            { icon:'👤', text: c.author },
+            { icon:'📅', text: new Date(c.date).toLocaleString('zh-TW') },
+            { icon:'📝', text: c.message },
+            { icon:'📧', text: c.email },
+          ],
+          desc:'', actions:[]
+        });
+      };
+    } catch(e) { errGrid(e); renderToolbar(''); }
+
+    window.f2SelectCat = (id) => {
+      if (id === 'status') {
+        api('/api/git/status').then(status => {
+          const modified  = status.modified  || [];
+          const staged    = status.staged    || [];
+          const untracked = status.untracked || [];
+          renderGrid(`<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0">
+            <div style="font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:.1em;text-transform:uppercase;padding:4px 0">已修改 (${modified.length})</div>
+            ${modified.map(f=>`<div class="m-item" style="aspect-ratio:unset;flex-direction:row;padding:10px 14px;height:auto;gap:10px;border-radius:6px">
+              <span style="font-size:14px">✏️</span>
+              <span style="font-size:11px;color:#f0ead8">${f}</span>
+            </div>`).join('')}
+            ${staged.length ? `<div style="font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:.1em;text-transform:uppercase;padding:8px 0 4px">已暫存 (${staged.length})</div>
+            ${staged.map(f=>`<div class="m-item" style="aspect-ratio:unset;flex-direction:row;padding:10px 14px;height:auto;gap:10px;border-radius:6px">
+              <span style="font-size:14px">✅</span>
+              <span style="font-size:11px;color:#4ade80">${f}</span>
+            </div>`).join('')}` : ''}
+            ${untracked.length ? `<div style="font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:.1em;text-transform:uppercase;padding:8px 0 4px">未追蹤 (${untracked.length})</div>
+            ${untracked.map(f=>`<div class="m-item" style="aspect-ratio:unset;flex-direction:row;padding:10px 14px;height:auto;gap:10px;border-radius:6px">
+              <span style="font-size:14px">❓</span>
+              <span style="font-size:11px;color:rgba(255,255,255,0.45)">${f}</span>
+            </div>`).join('')}` : ''}
+            ${!modified.length && !staged.length && !untracked.length
+              ? '<div class="m-empty" style="padding:40px 0"><div class="m-empty-icon">✨</div><div>工作目錄乾淨</div></div>'
+              : ''}
+          </div>`);
+          renderDetail({
+            icon:'📊', name:'工作目錄狀態', tag:status.branch||'unknown',
+            attrs:[
+              { icon:'🌿', text:'分支：'+(status.branch||'unknown') },
+              { icon:'↑',  text:'超前 '+status.ahead+' 個 commit' },
+              { icon:'↓',  text:'落後 '+status.behind+' 個 commit' },
+              { icon:'✏️', text:`修改 ${modified.length} · 暫存 ${staged.length} · 未追蹤 ${untracked.length}` },
+            ],
+            desc:'', actions:[]
+          });
+        }).catch(e => errGrid(e));
+      } else {
+        // commits 分類 — 重新載入 git log
+        PANELS.f2();
+      }
+    };
+  },
+
+  // ── F3: 測試套件（測試面板，全寬 iframe） ─────────────────────────────────
+  async f3() {
+    // openModal 已處理 fullwidth 模式和 iframe 注入，此處無需額外操作
+  },
+
+  // ── F4: 目標專案時程 ──────────────────────────────────────────────────
+  async f4() {
+    let msData = [];
+
+    // 先定義 window 函數，再呼叫 renderSidebar
+    window._f4RenderMs = (filter) => {
+      const list = filter==='all' ? msData
+        : msData.filter(m => filter==='done' ? m.completion===100 : m.completion<100);
+      if (!msData.length) {
+        renderGrid(`<div class="m-empty"><div class="spin"></div></div>`);
+        return;
+      }
+      if (!list.length) {
+        renderGrid(`<div class="m-empty"><div class="m-empty-icon">🏆</div><div>此分類無里程碑</div></div>`);
+        return;
+      }
+      renderGrid(`<div class="m-item-grid">${list.map(m => {
+        const pct = m.completion;
+        const idx = msData.indexOf(m);
+        return `<div class="m-item" onclick="window._f4Show(${idx})"
+                     style="padding:12px 10px;aspect-ratio:unset;height:auto;gap:6px">
+          <div style="font-size:24px">${pct===100?'🏆':pct>=60?'⚡':'📌'}</div>
+          <div class="m-item-name" style="font-size:11px;font-weight:700;color:#f0ead8">${m.title}</div>
+          <div style="width:100%;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:linear-gradient(to right,var(--accent),var(--accent2));border-radius:2px"></div>
+          </div>
+          <div style="font-size:10px;color:${pct===100?'#4ade80':'var(--accent)'}">${pct}% · ${m.doneTasks}/${m.totalTasks}</div>
+        </div>`;
+      }).join('')}</div>`);
+    };
+
+    window._f4Show = (i) => {
+      const m = msData[i]; if (!m) return;
+      renderDetail({
+        icon: m.completion===100?'🏆':m.completion>=60?'⚡':'📌',
+        name: m.title, tag: m.status,
+        attrs:[
+          { icon:'📊', text:`完成度：${m.completion}%（${m.doneTasks}/${m.totalTasks} 任務）` },
+          { icon:'📅', text: m.due ? '截止：'+m.due : '無截止日期' },
+          { icon:'🏷', text: (m.tags||[]).join('、') || '無標籤' },
+        ],
+        desc:'', actions:[]
+      });
+    };
+
+    renderSidebar([
+      { id:'all',  icon:'🏆', label:'里程碑' },
+      { id:'wip',  icon:'⚙️',  label:'進行中' },
+      { id:'done', icon:'✅', label:'已完成' },
+    ], 'all', (id) => window._f4RenderMs(id));
+
+    renderGrid(`<div class="m-empty"><div class="spin"></div></div>`);
+    renderToolbar(`<span style="font-size:11px;color:rgba(255,255,255,0.35)">載入里程碑…</span>`);
+
+    try {
+      const data = await api('/api/milestones');
+      msData = data.milestones || [];
+      renderToolbar(`<span style="font-size:11px;color:rgba(255,255,255,0.35)">${msData.length} 個里程碑</span>`);
+      window._f4RenderMs('all');
+      if (msData.length) window._f4Show(0);
+    } catch(e) { errGrid(e); }
+  },
+
+  // ── B: 模組背包 ──────────────────────────────────────────────────────────
+  async b() {
+    const TC = { STR:'#3A7FD5',INT:'#00C97A',FLOAT:'#F5A623',FLT:'#F5A623',BOOL:'#FF8C42',ARR:'#A97FE8',OBJ:'#FF4D6A',ANY:'#8A9DC0',NUM:'#4ECDC4' };
+    const SC  = { DONE:'#4ade80', WIP:'var(--accent)', BLOCKED:'#f87171' };
+    let modules = [], slotA = null, slotB = null;
+    let currentFilter = 'all';
+
+    // ── helpers ──────────────────────────────────────────────────────────
+    function compat(a,b) {
+      if (!a||!b) return null;
+      const o = a.output?.type||'', i = b.input?.type||'';
+      return o===i || o==='ANY' || i==='ANY' || (i==='NUM' && (o==='INT'||o==='FLOAT'));
+    }
+
+    function updateSlotBar() {
+      const sa=$('b-sa'), sb=$('b-sb'), msg=$('b-msg');
+      if (sa)  { sa.textContent  = slotA ? `槽A: ${slotA.name}` : '槽A: —'; sa.style.color  = slotA ? 'var(--accent)' : 'rgba(255,255,255,0.3)'; }
+      if (sb)  { sb.textContent  = slotB ? `槽B: ${slotB.name}` : '槽B: —'; sb.style.color  = slotB ? 'var(--accent)' : 'rgba(255,255,255,0.3)'; }
+      if (msg) {
+        if (slotA && slotB) { const c=compat(slotA,slotB); msg.textContent=c?'✓ 相容':'✗ 不符'; msg.style.color=c?'#4ade80':'#f87171'; }
+        else msg.textContent = '';
+      }
+    }
+
+    function doRenderMods(filter) {
+      currentFilter = filter;
+      const list = filter==='all' ? modules : modules.filter(m => m.status===filter);
+
+      renderToolbar(`
+        <input class="m-search" id="b-q" placeholder="搜尋模組名稱 / 標籤…"
+               oninput="window._bFilter()" style="max-width:200px"/>
+        <span style="font-size:10px;color:rgba(255,255,255,0.35)">${list.length} 個模組</span>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span id="b-sa" style="font-size:10px;padding:4px 10px;border-radius:4px;
+                border:1px dashed rgba(232,200,115,0.3);color:rgba(255,255,255,0.3)">槽A: —</span>
+          <span style="color:rgba(255,255,255,0.3);font-size:12px">→</span>
+          <span id="b-sb" style="font-size:10px;padding:4px 10px;border-radius:4px;
+                border:1px dashed rgba(232,200,115,0.3);color:rgba(255,255,255,0.3)">槽B: —</span>
+          <span id="b-msg" style="font-size:11px;font-weight:700"></span>
+          <button class="m-action-btn secondary"
+                  style="flex:none;padding:4px 10px;font-size:10px"
+                  onclick="window._bClear()">清除</button>
+        </div>
+      `);
+
+      if (!modules.length) {
+        renderGrid('<div class="m-empty"><div class="spin"></div></div>');
+        return;
+      }
+      if (!list.length) {
+        renderGrid(`<div class="m-empty"><div class="m-empty-icon">🔍</div><div>此分類無模組</div></div>`);
+        return;
+      }
+
+      renderGrid(`<div class="m-item-grid" id="b-grid">${list.map(m => {
+        const ti=TC[m.input?.type]||'#aaa', to=TC[m.output?.type]||'#aaa', sc=SC[m.status]||'#aaa';
+        const isActive = slotA?.id===m.id || slotB?.id===m.id;
+        return `<div class="m-item ${isActive?'active':''}" onclick="window._bSel(${m.id})"
+                     style="padding:8px 6px;gap:3px">
+          <div style="display:flex;justify-content:space-between;width:100%;
+                      font-size:9px;font-family:'JetBrains Mono',monospace">
+            <span style="color:${ti}">${m.input?.type||'?'}</span>
+            <span style="color:${to}">${m.output?.type||'?'}</span>
+          </div>
+          <div class="m-item-name" style="font-size:11px;font-weight:700;color:#f0ead8">${m.name}</div>
+          <div style="display:flex;justify-content:space-between;width:100%;font-size:9px">
+            <span style="color:rgba(255,255,255,0.3)">${String(m.id).padStart(2,'0')}</span>
+            <span style="color:${sc}">${m.status==='DONE'?'✓':m.status==='BLOCKED'?'✗':'…'}</span>
+          </div>
+        </div>`;
+      }).join('')}</div>`);
+
+      updateSlotBar();
+    }
+
+    // ── window globals（必須在 renderSidebar 之前定義）──────────────────
+    window._bRenderMods = (filter) => doRenderMods(filter);
+
+    window._bFilter = () => {
+      const q = $('b-q')?.value?.toLowerCase() || '';
+      const list = currentFilter==='all' ? modules : modules.filter(m=>m.status===currentFilter);
+      document.querySelectorAll('#b-grid .m-item').forEach((el,i) => {
+        const m = list[i]; if (!m) return;
+        el.style.display = (!q
+          || m.name.toLowerCase().includes(q)
+          || (m.tags||[]).some(t => t.toLowerCase().includes(q))) ? '' : 'none';
+      });
+    };
+
+    window._bSel = (id) => {
+      const m = modules.find(x => x.id===id); if (!m) return;
+      if (!slotA)      slotA = m;
+      else if (!slotB) slotB = m;
+      else             { slotA = m; slotB = null; }
+      updateSlotBar();
+      renderDetail({
+        icon: '🧩', name: m.name+'()', tag: m.status,
+        attrs: [
+          { icon:'📥', text:`INPUT：${m.input?.type||'?'}` },
+          { icon:'📤', text:`OUTPUT：${m.output?.type||'?'}` },
+          { icon:'⚡', text:`延遲：${m.latency||'—'}` },
+          { icon:'🏷', text: (m.tags||[]).join('、') || '無標籤' },
+        ],
+        desc: m.description || '',
+        actions: [
+          { label:'裝入槽 A', cls:'secondary', onclick:`window._bSlot(${m.id},'A')` },
+          { label:'裝入槽 B', cls:'primary',   onclick:`window._bSlot(${m.id},'B')` },
+        ]
+      });
+    };
+
+    window._bSlot = (id, slot) => {
+      const m = modules.find(x => x.id===id); if (!m) return;
+      if (slot==='A') slotA=m; else slotB=m;
+      updateSlotBar();
+    };
+
+    window._bClear = () => { slotA=null; slotB=null; updateSlotBar(); };
+
+    // ── 渲染側欄（此時 window._bRenderMods 已定義）────────────────────
+    renderSidebar([
+      { id:'all',     icon:'🧪', label:'全部' },
+      { id:'DONE',    icon:'✅', label:'DONE' },
+      { id:'WIP',     icon:'⚙️',  label:'WIP' },
+      { id:'BLOCKED', icon:'🚫', label:'BLOCKED' },
+    ], 'all', (id) => window._bRenderMods(id));
+
+    // 先顯示 loading
+    renderGrid('<div class="m-empty"><div class="spin"></div></div>');
+    renderToolbar('<span style="font-size:11px;color:rgba(255,255,255,0.35)">載入模組清單…</span>');
+
+    // ── 載入資料 ──────────────────────────────────────────────────────
+    try {
+      const d = await api('/api/modules');
+      modules = d.modules || [];
+      doRenderMods('all');
+    } catch(e) {
+      errGrid(e);
+    }
+  },
+
+  // ── F5: 知識圖鑑 ─────────────────────────────────────────────────────────
+  async f5() {
+    renderSidebar([
+      { id:'search', icon:'🔍', label:'搜尋' },
+      { id:'all',    icon:'📚', label:'全部文件' },
+    ], 'search', (id) => window._f5SelectCat(id));
+
+    renderToolbar(`
+      <input class="m-search" id="f5-q" placeholder="搜尋知識庫文件…" oninput="f5Do()" style="max-width:320px"/>
+      <span style="font-size:10px;color:rgba(255,255,255,0.35)" id="f5-cnt"></span>
+      <span style="font-size:10px;padding:3px 10px;border-radius:12px;background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.25);color:rgba(148,163,184,0.7);margin-left:auto;">🔒 唯讀 — 手動放置檔案至 docs/</span>
+    `);
+    renderGrid(`<div class="m-empty"><div style="font-size:12px;color:rgba(255,255,255,0.2)">輸入關鍵字開始搜尋</div></div>`);
+
+    window._f5SelectCat = (id) => {
+      if (id === 'all') {
+        $('f5-q').value = '';
+        $('f5-cnt').textContent = '';
+        api('/api/docs/tree').then(data => {
+          let allDocs = [];
+          function flat(nodes) { nodes.forEach(n => { if(n.type==='file') allDocs.push(n); else if(n.children) flat(n.children); }); }
+          flat(data.tree || []);
+          $('f5-cnt').textContent = allDocs.length + ' 筆';
+          renderGrid(`<div style="display:flex;flex-direction:column;gap:4px">${allDocs.map((d,i)=>`
+            <div class="m-item" onclick="f5Open(${i},'all')" style="aspect-ratio:unset;flex-direction:row;align-items:center;gap:12px;padding:12px 16px;height:auto;border-radius:8px">
+              <span style="font-size:20px">📄</span>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:700;color:#f0ead8">${d.name.replace('.md','')}</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.3)">${d.path}</div>
+              </div>
+            </div>`).join('')}</div>`);
+          const docs = allDocs;
+          window.f5Open = async (i, _src) => {
+            const r = docs[i];
+            renderDetail({ icon:'📄', name:r.name.replace('.md',''), tag:r.path.split('/').pop(), attrs:[{ icon:'📂', text:r.path }], desc:'' });
+            try {
+              const doc = await api('/api/docs/file?path='+encodeURIComponent(r.path));
+              $('m-detail-body').innerHTML += `<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;max-height:200px;overflow-y:auto"><pre style="font-size:10px;color:rgba(240,234,216,0.6);white-space:pre-wrap;word-break:break-all;line-height:1.55">${doc.content.replace(/</g,'&lt;').slice(0,600)}</pre></div>`;
+            } catch {}
+          };
+        }).catch(e => errGrid(e));
+      } else {
+        // 搜尋分類 — 清空並 focus
+        renderGrid(`<div class="m-empty"><div style="font-size:12px;color:rgba(255,255,255,0.2)">輸入關鍵字開始搜尋</div></div>`);
+        setTimeout(() => $('f5-q')?.focus(), 50);
+      }
+    };
+
+    window.f5Do = async () => {
+      const q = $('f5-q')?.value?.trim();
+      if (!q) { renderGrid(`<div class="m-empty"><div style="font-size:12px;color:rgba(255,255,255,0.2)">輸入關鍵字開始搜尋</div></div>`); return; }
+      renderGrid(`<div class="m-empty"><div class="spin"></div></div>`);
+      try {
+        const d = await api('/api/docs/search?q='+encodeURIComponent(q));
+        $('f5-cnt').textContent = d.count+' 筆';
+        if (!d.results.length) { renderGrid(`<div class="m-empty"><div class="m-empty-icon">🔍</div><div>找不到符合文件</div></div>`); return; }
+        const results = d.results;
+        renderGrid(`<div style="display:flex;flex-direction:column;gap:4px">${results.map((r,i)=>`
+          <div class="m-item" onclick="f5Open(${i})" style="aspect-ratio:unset;flex-direction:row;align-items:flex-start;gap:12px;padding:14px 16px;height:auto;border-radius:8px">
+            <span style="font-size:22px;flex-shrink:0">📄</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:#f0ead8">${r.title}</div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.3);margin:2px 0">${r.path}</div>
+              <div style="font-size:11px;color:rgba(240,234,216,0.5)">${r.excerpt}</div>
+              <div style="margin-top:5px">${r.tags.map(t=>`<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(232,200,115,0.1);color:var(--accent);border:1px solid rgba(232,200,115,0.2);margin-right:4px">${t}</span>`).join('')}</div>
+            </div>
+          </div>`).join('')}</div>`);
+
+        window.f5Open = async (i) => {
+          const r = results[i];
+          renderDetail({ icon:'📄', name:r.title, tag:r.path.split('/').pop(), attrs:[{ icon:'📂', text:r.path }], desc:r.excerpt });
+          try {
+            const doc = await api('/api/docs/file?path='+encodeURIComponent(r.path));
+            $('m-detail-body').innerHTML += `<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;max-height:200px;overflow-y:auto"><pre style="font-size:10px;color:rgba(240,234,216,0.6);white-space:pre-wrap;word-break:break-all;line-height:1.55">${doc.content.replace(/</g,'&lt;').slice(0,600)}</pre></div>`;
+          } catch {}
+        };
+      } catch(e) { errGrid(e); }
+    };
+  },
+
+  // ── M: 知識雷達 ──────────────────────────────────────────────────────────
+  async m() {
+    renderGrid(`<div class="m-empty"><div class="spin"></div></div>`);
+    try {
+      const data = await api('/api/docs/tree');
+      const tree = data.tree || [];
+      let allDocs = [];
+      function flatten(nodes) { nodes.forEach(n => { if(n.type==='file') allDocs.push(n); else if(n.children) flatten(n.children); }); }
+      flatten(tree);
+
+      const domains = tree.filter(n=>n.type==='dir');
+      renderSidebar([
+        { id:'__all__', icon:'🌐', label:'全部' },
+        ...domains.map(d => ({ id:d.name, icon:'📂', label:d.name })),
+      ], '__all__', (id) => window._mShowDomain(id));
+
+      renderToolbar(`<span style="font-size:11px;color:rgba(255,255,255,0.35)">${allDocs.length} 個文件</span>`);
+
+      window._mShowDomain = function(domId) {
+        const docs = domId==='__all__' ? allDocs : allDocs.filter(d=>d.path.startsWith(domId+'/'));
+        if (!docs.length) { renderGrid(`<div class="m-empty"><div class="m-empty-icon">📁</div><div>此目錄尚無文件</div></div>`); return; }
+        renderGrid(`<div class="m-item-grid">${docs.map((d,i)=>`
+          <div class="m-item" onclick="mOpen(${i})">
+            <div class="m-item-icon">📄</div>
+            <div class="m-item-name">${d.name.replace('.md','')}</div>
+          </div>`).join('')}</div>`);
+
+        window.mOpen = async (i) => {
+          const doc = docs[i];
+          renderDetail({ icon:'📄', name:doc.name.replace('.md',''), tag:doc.path, attrs:[{ icon:'📂', text:doc.path }], desc:'' });
+          try {
+            const d = await api('/api/docs/file?path='+encodeURIComponent(doc.path));
+            $('m-detail-body').innerHTML = `
+              <div class="m-detail-desc">${d.frontmatter?.description||d.content.slice(0,120).replace(/</g,'&lt;')}</div>
+              <div style="padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;max-height:220px;overflow-y:auto;margin-top:8px">
+                <pre style="font-size:10px;color:rgba(240,234,216,0.6);white-space:pre-wrap;word-break:break-all;line-height:1.55">${d.content.replace(/</g,'&lt;').slice(0,800)}</pre>
+              </div>`;
+          } catch {}
+        };
+      }
+
+      if (tree.length) window._mShowDomain('__all__');
+      else renderGrid(`<div class="m-empty"><div class="m-empty-icon">📁</div><div>docs/ 目錄尚無文件</div></div>`);
+    } catch(e) { errGrid(e); }
+  },
+};
+
+
+// ── Quest: load from milestones ───────────────────────────────────────────────
+
+async function loadQuests() {
+  try {
+    const data = await api('/api/milestones');
+    const ms   = (data.milestones || []).slice(0, 3);
+    ms.forEach((m, i) => {
+      const qi = document.getElementById('q' + i);
+      if (!qi) return;
+      qi.style.display = '';
+      document.getElementById('qn' + i).textContent = m.title;
+      document.getElementById('qs' + i).textContent = m.completion + '% · ' + m.doneTasks + '/' + m.totalTasks + ' 任務';
+    });
+  } catch {
+    document.getElementById('qn0').textContent = '後端未連線';
+    document.getElementById('qs0').textContent = 'npm run dev';
+  }
+}
+
+function selQ(i) {
+  for (let n = 0; n < 3; n++) {
+    document.getElementById('q' + n).classList.toggle('active', n === i);
+    document.getElementById('qg' + n).classList.toggle('lit', n === i);
+  }
+}
+
+function selC(i) {
+  document.querySelectorAll('.cc').forEach((c, n) => c.classList.toggle('active', n === i));
+}
+
+// ── Image upload helpers ──────────────────────────────────────────────────────
+
+let objectUrls = [];
+let keyOpen = false;
+
+function mkUrl(f) { const u = URL.createObjectURL(f); objectUrls.push(u); return u; }
+function loadImg(el, url) { el.src = url; el.classList.add('on'); }
+
+function upBg(e) { const f = e.target.files[0]; if(!f) return; const bg = document.getElementById('hud-bg'); bg.style.backgroundImage=`url(${mkUrl(f)})`; bg.style.backgroundSize='cover'; toast('背景圖已載入：'+f.name); e.target.value=''; }
+function upMm(e) { const f = e.target.files[0]; if(!f) return; const img=document.getElementById('mm-img'),svg=document.getElementById('mm-svg'); loadImg(img,mkUrl(f)); if(svg)svg.style.display='none'; toast('雷達圖已載入：'+f.name); e.target.value=''; }
+function upKey(e,k) { const f=e.target.files[0]; if(!f) return; loadImg(document.getElementById('hki-'+k),mkUrl(f)); toast('鍵位圖示替換：'+k.toUpperCase()); e.target.value=''; }
+function upAv(e,i) { const f=e.target.files[0]; if(!f) return; loadImg(document.getElementById('avi-'+i),mkUrl(f)); toast('頭像替換：'+i); e.target.value=''; }
+function toggleKeys() { keyOpen=!keyOpen; document.getElementById('key-row').classList.toggle('open',keyOpen); }
+
+function upTheme(e) {
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ev => { try { applyTheme(JSON.parse(ev.target.result)); toast('主題已套用'); } catch { toast('theme.json 格式錯誤'); } };
+  r.readAsText(f); e.target.value='';
+}
+
+function applyTheme(t) {
+  const root = document.documentElement, c = t.colors||{};
+  const map = {'--accent':c.accent,'--accent2':c.accent2,'--text':c.text,'--muted':c.muted,'--border':c.border,'--border2':c.border2,'--panel-bg':c.panelBg,'--key-bg':c.keyBg,'--quest-bg':c.questBg,'--bg-blur':c.bgBlur,'--hp-l':c.hpColor,'--hp-r':c.hpColor2};
+  Object.entries(map).forEach(([k,v])=>{ if(v) root.style.setProperty(k,v); });
+  const a = t.assets||{};
+  if(a.bg){document.getElementById('hud-bg').style.backgroundImage=`url(${a.bg})`;document.getElementById('hud-bg').style.backgroundSize='cover';}
+  if(a.minimap){const img=document.getElementById('mm-img'),svg=document.getElementById('mm-svg');img.src=a.minimap;img.onload=()=>{img.classList.add('on');if(svg)svg.style.display='none';};}
+  if(a.keys)Object.entries(a.keys).forEach(([k,s])=>{const img=document.getElementById('hki-'+k);if(img&&s){img.src=s;img.onload=()=>img.classList.add('on');}});
+  if(a.avatars)Object.entries(a.avatars).forEach(([i,s])=>{const img=document.getElementById('avi-'+i);if(img&&s){img.src=s;img.onload=()=>img.classList.add('on');}});
+}
+
+async function loadThemeFromServer(id) {
+  try { const t=await(await fetch(`assets/themes/${id}/theme.json`)).json(); applyTheme(t); toast('主題已載入：'+(t.name||id)); } catch(e){ toast('主題載入失敗'); }
+}
+
+function clearAll() {
+  document.getElementById('hud-bg').style.backgroundImage='';
+  const mi=document.getElementById('mm-img'),ms=document.getElementById('mm-svg');
+  mi.src='';mi.classList.remove('on');if(ms)ms.style.display='';
+  ['f1','f2','f3','f4','f5','b','m'].forEach(k=>{const i=document.getElementById('hki-'+k);if(i){i.src='';i.classList.remove('on');}});
+  [0,1,2].forEach(n=>{const i=document.getElementById('avi-'+n);if(i){i.src='';i.classList.remove('on');}});
+  objectUrls.forEach(URL.revokeObjectURL);objectUrls=[];
+  toast('已清除所有自訂資源');
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove('show'), 2500);
+}
+
+// ── Keyboard ──────────────────────────────────────────────────────────────────
+
+document.addEventListener('keydown', e => {
+  if (['INPUT','TEXTAREA'].includes(e.target.tagName)) {
+    if (e.key === 'Escape') { closeModal(); closeSettings(); }
+    return;
+  }
+  const map = {F1:'f1',F2:'f2',F3:'f3',F4:'f4',F5:'f5',b:'b',B:'b',m:'m',M:'m'};
+  const k = map[e.key];
+  if (k) { e.preventDefault(); openModal(k); return; }
+  if (e.key === 'Escape') {
+    // 若有主面板開著，關主面板；否則開設定
+    const modalOpen    = document.getElementById('modal').classList.contains('open');
+    const settingsOpen = document.getElementById('settings-modal').style.opacity === '1';
+    if (modalOpen)    { closeModal();    return; }
+    if (settingsOpen) { closeSettings(); return; }
+    openSettings();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+// ════════════════════════════════════════════════════════════════════
+// SETTINGS PANEL (ESC)
+// 儲存位置：localStorage (前端即時) + /api/config (後端持久化)
+// 支援：OpenAI / Anthropic / llama.cpp / 自訂 API
+// ════════════════════════════════════════════════════════════════════
+
+const CFG_KEY = 'llm-wiki-config';
+
+const DEFAULT_CFG = {
+  // AI 接口
+  ai_provider:      'openai',       // openai | anthropic | llama | custom
+  openai_key:       '',
+  openai_model:     'gpt-4o',
+  openai_base_url:  'https://api.openai.com/v1',
+  anthropic_key:    '',
+  anthropic_model:  'claude-sonnet-4-6',
+  // llama.cpp
+  llama_host:       'http://127.0.0.1',
+  llama_port:       '8080',
+  llama_model_path: '',
+  llama_ctx_size:   '4096',
+  llama_threads:    '4',
+  llama_gpu_layers: '0',
+  // 自訂 API
+  custom_base_url:  '',
+  custom_api_key:   '',
+  custom_model:     '',
+  // 向量嵌入
+  embed_provider:   'openai',       // openai | llama | custom
+  embed_model:      'text-embedding-3-small',
+  // 後端
+  api_server:       'http://localhost:3001',
+  // HUD
+  hud_blur:         '4',
+  hud_lang:         'zh-TW',
+};
+
+const CFG_SECTIONS = [
+  { id:'ai',     icon:'🤖', label:'AI 接口'     },
+  { id:'llama',  icon:'🦙', label:'llama.cpp'   },
+  { id:'embed',  icon:'🧬', label:'向量嵌入'    },
+  { id:'server', icon:'🖥',  label:'後端伺服器'  },
+  { id:'hud',    icon:'🎨', label:'HUD 外觀'    },
+  { id:'about',  icon:'ℹ',  label:'關於'        },
+];
+
+function loadCfg() {
+  try { return { ...DEFAULT_CFG, ...JSON.parse(localStorage.getItem(CFG_KEY) || '{}') }; }
+  catch { return { ...DEFAULT_CFG }; }
+}
+
+function saveCfgLocal(cfg) {
+  localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
+}
+
+let cfgState = loadCfg();
+let cfgSection = 'ai';
+
+function openSettings() {
+  cfgState = loadCfg();
+  document.getElementById('settings-backdrop').style.cssText = 'position:absolute;inset:0;z-index:40;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);';
+  const m = document.getElementById('settings-modal');
+  m.style.opacity = '1'; m.style.pointerEvents = 'auto'; m.style.transform = 'translate(-50%,-50%) scale(1)';
+  document.querySelectorAll('.hk').forEach(b => b.classList.remove('active'));
+  $('hkb-esc')?.classList.add('active');
+  renderCfgSidebar();
+  renderCfgSection(cfgSection);
+}
+
+function closeSettings() {
+  document.getElementById('settings-backdrop').style.cssText = '';
+  const m = document.getElementById('settings-modal');
+  m.style.opacity = '0'; m.style.pointerEvents = 'none'; m.style.transform = 'translate(-50%,-50%) scale(0.94)';
+  $('hkb-esc')?.classList.remove('active');
+}
+
+function renderCfgSidebar() {
+  const sb = $('cfg-sidebar');
+  sb.innerHTML = CFG_SECTIONS.map(s => `
+    <div onclick="renderCfgSection('${s.id}')" style="
+      display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;
+      font-size:11px;font-family:'JetBrains Mono',monospace;
+      color:${s.id===cfgSection?'var(--accent)':'rgba(255,255,255,0.45)'};
+      background:${s.id===cfgSection?'rgba(232,200,115,0.08)':'transparent'};
+      border-left:2px solid ${s.id===cfgSection?'var(--accent)':'transparent'};
+      transition:all .12s;
+    " id="cfg-tab-${s.id}">
+      <span style="font-size:14px">${s.icon}</span>${s.label}
+    </div>`).join('');
+}
+
+function cfgField(key, label, type='text', extra='') {
+  const val = cfgState[key] ?? '';
+  const inputStyle = `width:100%;background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#f0ead8;outline:none;box-sizing:border-box;`;
+  if (type === 'select') {
+    return `<div style="margin-bottom:14px">
+      <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">${label}</div>
+      <select id="cfg-${key}" onchange="cfgState['${key}']=this.value;renderCfgSection(cfgSection)"
+        style="${inputStyle}cursor:pointer;">${extra}</select>
+    </div>`;
+  }
+  if (type === 'password') {
+    return `<div style="margin-bottom:14px">
+      <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">${label}</div>
+      <input type="password" id="cfg-${key}" value="${val}" oninput="cfgState['${key}']=this.value"
+        style="${inputStyle}" placeholder="••••••••" autocomplete="off"/>
+    </div>`;
+  }
+  return `<div style="margin-bottom:14px">
+    <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">${label}</div>
+    <input type="${type}" id="cfg-${key}" value="${val}" oninput="cfgState['${key}']=this.value"
+      style="${inputStyle}" ${extra}/>
+  </div>`;
+}
+
+function cfgHint(text) {
+  return `<div style="font-size:11px;color:rgba(255,255,255,0.28);line-height:1.6;margin-bottom:16px;padding:10px 12px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:3px solid rgba(232,200,115,0.25)">${text}</div>`;
+}
+
+function cfgTitle(t) {
+  return `<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.07)">${t}</div>`;
+}
+
+function renderCfgSection(id) {
+  cfgSection = id;
+  renderCfgSidebar();
+  const el = $('cfg-content');
+  const p  = cfgState.ai_provider;
+  const ep = cfgState.embed_provider;
+
+  const sections = {
+    ai: () => `
+      ${cfgTitle('🤖 AI 接口設定')}
+      ${cfgHint('選擇 AI 提供者，LLM WIKI 使用 AI 進行草稿生成與智慧問答。<br>llama.cpp 支援完全本地推理，無需 API 金鑰。')}
+      ${cfgField('ai_provider','AI 提供者','select',`
+        <option value="openai"    ${p==='openai'?'selected':''}>OpenAI (GPT-4o 等)</option>
+        <option value="anthropic" ${p==='anthropic'?'selected':''}>Anthropic (Claude)</option>
+        <option value="llama"     ${p==='llama'?'selected':''}>llama.cpp（本地）</option>
+        <option value="custom"    ${p==='custom'?'selected':''}>自訂 API（OpenAI 相容）</option>
+      `)}
+      ${p==='openai' ? `
+        ${cfgField('openai_key','OpenAI API Key','password')}
+        ${cfgField('openai_model','模型','select',`
+          <option value="gpt-4o">gpt-4o</option>
+          <option value="gpt-4o-mini">gpt-4o-mini</option>
+          <option value="gpt-4-turbo">gpt-4-turbo</option>
+          <option value="o1-preview">o1-preview</option>
+        `)}
+        ${cfgField('openai_base_url','API Base URL（可覆蓋）','text','placeholder="https://api.openai.com/v1"')}
+      ` : ''}
+      ${p==='anthropic' ? `
+        ${cfgField('anthropic_key','Anthropic API Key','password')}
+        ${cfgField('anthropic_model','模型','select',`
+          <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+          <option value="claude-opus-4-6">claude-opus-4-6</option>
+          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5</option>
+        `)}
+      ` : ''}
+      ${p==='llama' ? `${cfgHint('⚠ llama.cpp 設定請至「llama.cpp」分頁設置')}` : ''}
+      ${p==='custom' ? `
+        ${cfgHint('自訂 API 必須相容 OpenAI /v1/chat/completions 格式（如 LM Studio、Ollama 等）')}
+        ${cfgField('custom_base_url','Base URL','text','placeholder="http://localhost:1234/v1"')}
+        ${cfgField('custom_api_key','API Key（可留空）','password')}
+        ${cfgField('custom_model','模型名稱','text','placeholder="local-model"')}
+      ` : ''}
+    `,
+
+    llama: () => `
+      ${cfgTitle('🦙 llama.cpp 本地推理')}
+      ${cfgHint('llama.cpp 提供完全離線的本地 LLM 推理。<br>啟動 llama.cpp server 後填入以下設定，無需 API 金鑰，保護隱私。<br><br>啟動指令範例：<code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px">./llama-server -m model.gguf --host 0.0.0.0 --port 8080</code>')}
+      ${cfgField('llama_host','Server Host','text','placeholder="http://127.0.0.1"')}
+      ${cfgField('llama_port','Port','text','placeholder="8080"')}
+      <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">API Endpoint（自動組合）</div>
+      <div style="font-size:11px;color:var(--accent);padding:8px 12px;background:rgba(0,0,0,0.3);border-radius:6px;margin-bottom:14px;font-family:'JetBrains Mono',monospace">
+        ${cfgState.llama_host || 'http://127.0.0.1'}:${cfgState.llama_port || '8080'}/v1/chat/completions
+      </div>
+      ${cfgField('llama_model_path','模型路徑（顯示用）','text','placeholder="/models/llama-3-8b.gguf"')}
+      ${cfgField('llama_ctx_size','Context Size','text','placeholder="4096"')}
+      ${cfgField('llama_threads','CPU Threads','text','placeholder="4"')}
+      ${cfgField('llama_gpu_layers','GPU Layers（0=純 CPU）','text','placeholder="0"')}
+      ${cfgHint('✦ 當 AI 提供者設為「llama.cpp」時，LLM WIKI 會將 llama.cpp server 作為 OpenAI 相容 API 使用。<br>llama.cpp server 支援 /v1/chat/completions 與 /v1/embeddings 端點。')}
+    `,
+
+    embed: () => `
+      ${cfgTitle('🧬 向量嵌入設定')}
+      ${cfgHint('向量嵌入用於 F5 圖鑑的語意搜尋功能，以及 wiki vector build 指令。')}
+      ${cfgField('embed_provider','嵌入提供者','select',`
+        <option value="openai" ${ep==='openai'?'selected':''}>OpenAI text-embedding-3-small</option>
+        <option value="llama"  ${ep==='llama' ?'selected':''}>llama.cpp /v1/embeddings</option>
+        <option value="custom" ${ep==='custom'?'selected':''}>自訂 Embedding API</option>
+      `)}
+      ${ep==='openai' ? `
+        ${cfgField('embed_model','嵌入模型','select',`
+          <option value="text-embedding-3-small">text-embedding-3-small（1536 維）</option>
+          <option value="text-embedding-3-large">text-embedding-3-large（3072 維）</option>
+          <option value="text-embedding-ada-002">text-embedding-ada-002（1536 維，舊版）</option>
+        `)}
+      ` : ''}
+      ${ep==='llama' ? cfgHint('使用 llama.cpp 分頁設定的 Host/Port 進行嵌入。<br>需要載入支援 embedding 的模型（如 nomic-embed-text）。') : ''}
+    `,
+
+    server: () => `
+      ${cfgTitle('🖥 後端 API 伺服器')}
+      ${cfgHint('LLM WIKI 後端伺服器負責讀寫 Markdown 檔案、Git 操作、模組解析等功能。<br>預設監聽 localhost:3001，CLI 和 HUD 前端都需要此服務。')}
+      ${cfgField('api_server','API Server URL','text','placeholder="http://localhost:3001"')}
+      <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">連線狀態</div>
+      <div id="server-status" style="font-size:11px;padding:8px 12px;background:rgba(0,0,0,0.3);border-radius:6px;margin-bottom:14px;color:rgba(255,255,255,0.35)">
+        點擊「測試連線」確認後端狀態
+      </div>
+      ${cfgHint('啟動指令：<code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px">npm run dev</code>')}
+    `,
+
+    hud: () => `
+      ${cfgTitle('🎨 HUD 外觀設定')}
+      ${cfgField('hud_blur','背景模糊強度（0-24px）','text','placeholder="4"')}
+      ${cfgField('hud_lang','介面語言','select',`
+        <option value="zh-TW" ${cfgState.hud_lang==='zh-TW'?'selected':''}>繁體中文</option>
+        <option value="zh-CN" ${cfgState.hud_lang==='zh-CN'?'selected':''}>简体中文</option>
+        <option value="en"    ${cfgState.hud_lang==='en'   ?'selected':''}>English</option>
+      `)}
+      ${cfgHint('換殼主題請使用底部工具列的「↑ theme.json」上傳功能，或手動放置至 assets/themes/ 目錄。')}
+    `,
+
+    about: () => `
+      ${cfgTitle('ℹ 關於 LLM WIKI')}
+      <div style="font-size:13px;color:var(--text);line-height:1.8;margin-bottom:16px">
+        <strong>LLM WIKI</strong> — 人機協作知識管理系統<br>
+        <span style="color:rgba(255,255,255,0.45)">版本：v1.0.0</span>
+      </div>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);line-height:1.8">
+        <div>後端 API：<span style="color:var(--accent)">${cfgState.api_server}</span></div>
+        <div>AI 提供者：<span style="color:var(--accent)">${cfgState.ai_provider}</span></div>
+        <div>嵌入提供者：<span style="color:var(--accent)">${cfgState.embed_provider}</span></div>
+      </div>
+      <div style="margin-top:16px;padding:12px;background:rgba(0,0,0,0.3);border-radius:8px;border:1px solid rgba(255,255,255,0.07)">
+        <div style="font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">儲存位置</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.45);line-height:1.8">
+          設定檔：localStorage（前端）+ <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">.system/config.json</code>（後端）<br>
+          筆記：<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">.system/user/notes/</code><br>
+          知識庫：<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">docs/**/*.md</code>（唯讀，手動放置）<br>
+          模組：<code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px">modules/*/README.md</code>
+        </div>
+      </div>
+      <div style="margin-top:14px;font-size:10px;color:rgba(255,255,255,0.25)">
+        授權：CC BY-NC-SA 4.0（文件）+ GPL v3（代碼）
+      </div>
+    `,
+  };
+
+  el.innerHTML = (sections[id] ?? (() => ''))();
+}
+
+function saveSettings() {
+  saveCfgLocal(cfgState);
+  // 同步到 API server URL
+  if (cfgState.api_server) {
+    window.API_OVERRIDE = cfgState.api_server;
+  }
+  // 同步 blur
+  if (cfgState.hud_blur) {
+    document.documentElement.style.setProperty('--bg-blur', cfgState.hud_blur + 'px');
+  }
+  // 嘗試持久化到後端
+  fetch((cfgState.api_server || API) + '/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfgState),
+  }).catch(() => {}); // 後端不可用時靜默失敗
+  toast('✓ 設定已儲存');
+  closeSettings();
+}
+
+function resetSettings() {
+  if (!confirm('確定重設所有設定為預設值？')) return;
+  cfgState = { ...DEFAULT_CFG };
+  renderCfgSection(cfgSection);
+  toast('設定已重設');
+}
+
+async function testConnection() {
+  const url = cfgState.api_server || API;
+  const el  = $('server-status');
+  if (el) el.textContent = '測試中…';
+  try {
+    const r = await fetch(url + '/api/health');
+    const d = await r.json();
+    if (el) {
+      el.textContent  = `✓ 連線成功 — ${d.modules ?? '?'} 個模組已載入`;
+      el.style.color  = '#4ade80';
+    }
+    toast('✓ 後端連線正常');
+  } catch(e) {
+    if (el) {
+      el.textContent = `✗ 無法連線：${url}`;
+      el.style.color = '#f87171';
+    }
+    toast('✗ 後端連線失敗');
+  }
+}
+
+// 初始化：從 localStorage 讀取設定並套用
+(function initCfg() {
+  const cfg = loadCfg();
+  if (cfg.hud_blur) document.documentElement.style.setProperty('--bg-blur', cfg.hud_blur + 'px');
+  if (cfg.api_server) window.API_OVERRIDE = cfg.api_server;
+})();
+
+loadQuests();
+// loadThemeFromServer('default');   // 取消注解以自動載入主題
+</script>
+</body>
+</html>

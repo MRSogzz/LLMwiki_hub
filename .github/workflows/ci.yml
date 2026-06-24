@@ -1,0 +1,144 @@
+# LLM WIKI — CI/CD Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+# 觸發條件：push 到 main 或 develop，或 Pull Request 合併
+# 功能：
+#   1. 型別校驗 (TypeScript)
+#   2. I/O Schema 合規性檢查（確保所有模組 README.md 含合法 YAML + I/O Block）
+#   3. 部署後 Latency 測量（writeback 到對應 Markdown）
+#   4. 向量索引重建（DONE 文件有更新時）
+
+name: LLM WIKI CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ── Job 1: Lint & Type Check ─────────────────────────────────────────────────
+  typecheck:
+    name: TypeScript Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check
+
+  # ── Job 2: Schema Validation ─────────────────────────────────────────────────
+  schema-validate:
+    name: I/O Schema Compliance
+    runs-on: ubuntu-latest
+    needs: typecheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Parse all module README.md files
+        run: |
+          echo "Scanning modules/ for YAML + I/O JSON compliance..."
+          npm run parse -- --validate-only
+        env:
+          MODULES_DIR: ./modules
+          DOCS_DIR:    ./docs
+
+      - name: Check for TypeMismatch in existing pipelines
+        run: |
+          echo "Running type compatibility checks..."
+          npm run validate -- --all
+        env:
+          MODULES_DIR: ./modules
+
+  # ── Job 3: CI Writeback (production only) ────────────────────────────────────
+  ci-writeback:
+    name: Latency Capture & Writeback
+    runs-on: ubuntu-latest
+    needs: schema-validate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests & capture latency
+        run: |
+          echo "Measuring real I/O latency for changed modules..."
+          npm run ci-writeback -- \
+            --module-id="${{ github.event.head_commit.message }}" \
+            --commit-sha="${{ github.sha }}"
+        env:
+          MODULES_DIR:   ./modules
+          GITHUB_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+          GIT_REMOTE_URL: ${{ github.repositoryUrl }}
+
+      - name: Commit writeback results
+        run: |
+          git config user.name  "LLM WIKI CI Bot"
+          git config user.email "ci-bot@llm-wiki.dev"
+          git add modules/ docs/
+          git diff --staged --quiet || git commit -m "[ci] writeback latency + status update (sha: ${{ github.sha }})"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Job 4: Rebuild vector index (on DONE doc changes) ───────────────────────
+  vector-rebuild:
+    name: Rebuild Vector Index
+    runs-on: ubuntu-latest
+    needs: ci-writeback
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild vector index
+        run: npm run vector:build
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODULES_DIR:    ./modules
+
+      - name: Upload vector cache artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vector-cache
+          path: .system/vector-cache.json
+          retention-days: 7

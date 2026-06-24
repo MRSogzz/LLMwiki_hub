@@ -1,0 +1,196 @@
+LLM WIKI — Public License & Technical Defensive Specification
+===========================================================
+
+This project (including all source code, documentation, UI schemas, HUD layout 
+specifications, and architectural workflows) is licensed under the terms of the 
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
+
+────────────────────────────────────────────────────────────────────────────────
+CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE LEGAL
+SERVICES. DISTRIBUTION OF THIS LICENSE DOES NOT CREATE AN ATTORNEY-CLIENT
+RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS INFORMATION ON AN "AS-IS" BASIS.
+CREATIVE COMMONS MAKES NO WARRANTIES REGARDING THE INFORMATION PROVIDED, AND
+DISCLAIMS LIABILITY FOR DAMAGES RESULTING FROM ITS USE.
+────────────────────────────────────────────────────────────────────────────────
+
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+
+By exercising the Licensed Rights (defined below), You accept and agree to be 
+bound by the terms and conditions of this Creative Commons Attribution-
+NonCommercial-ShareAlike 4.0 International Public License ("Public License"). 
+To the extent this Public License may be interpreted as a contract, You are 
+granted the Licensed Rights in consideration of Your acceptance of these terms 
+and conditions, and the Licensor grants You such rights in consideration of 
+benefits the Licensor receives from making the Licensed Material available 
+under these terms and conditions.
+
+For the full legal text of the CC BY-NC-SA 4.0 license, please refer to:
+https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+────────────────────────────────────────────────────────────────────────────────
+ADDITIONAL COPYRIGHT HOLDER TERMS (著作權人附加條款)
+────────────────────────────────────────────────────────────────────────────────
+
+1. COPYRIGHT HOLDER PRIVILEGES:
+   The restrictions of "Non-Commercial (NC)" under CC BY-NC-SA 4.0 apply strictly 
+   and solely to third-party public licensees. The original Copyright Holder of 
+   this repository retains absolute, unrestricted, and exclusive rights to 
+   commercialize, monetize, sub-license, change license terms, or transition 
+   this project into a commercial asset at any time.
+
+   【中譯】本專案 CC BY-NC-SA 4.0 條款之「非商業性（NC）」限制僅適用於第三方公眾。
+   本儲存庫之創作者為本專案全體資產之唯一原始著作權人（Copyright Holder），原作者得
+   不受此條款限制，並完全保留未來隨時將本專案進行商業化、轉化為商業服務、變更授權
+   模式或打包販售之完整、排他性法定權利。
+
+2. NO COMMERCIAL LICENSE GRANTED:
+   As of the current publication, no commercial licenses are granted to any corporate 
+   or enterprise entity. Any unauthorized deployment of this project, including its 
+   source codes, system architectures, or schemas, within a commercial environment 
+   or corporate workflow shall constitute a direct, willful infringement of copyright 
+   and prior art declaration, and the Copyright Holder reserves the right to pursue full 
+   legal remedies worldwide.
+
+   【中譯】目前本專案不對外開放任何形式之商業授權。未經原作者書面明示許可，任何組織
+   將本專案組件（包含源碼、架構或圖表）部署於營利、商業環境或用於任何公司內部生產力
+   工作流程之行為，均直接構成故意侵犯著作權與專利防禦宣告，原作者將依法追究全球法律責任。
+
+────────────────────────────────────────────────────────────────────────────────
+PRIOR ART NOTICE (TECHNICAL DEFENSIVE SPECIFICATION — ENGLISH)
+────────────────────────────────────────────────────────────────────────────────
+
+The following proprietary design concepts, architectural topologies, and system
+workflows are hereby declared as prior art, first published in this repository.
+The cryptographic Git commit logs, verifiable repository history, and public 
+hosting platform timestamps constitute *prima facie* evidence of public disclosure 
+and global public availability under international patent laws (including but not 
+limited to 35 U.S.C. § 102 and Article 54 EPC):
+
+1. Four-Corner Grid Topology with Multi-Stage JSON Schema Validation Pipeline (B-key HUD)
+   - A rigid visual cell layout mapping metadata to specific quadrant coordinates:
+     Top-Left for INPUT core schema, Top-Right for OUTPUT core schema, Center for
+     the function identity, Bottom-Left for the unique module ID, and Bottom-Right
+     for the dynamic lifecycle status indicator.
+   - An in-memory dynamic type-checking engine driven by full JSON Schema definitions. 
+     The engine recursively verifies pipeline compatibility between chained code blocks 
+     via Depth-First Search (DFS), intercepting nested object mismatches and raising 
+     a system-level `TypeMismatchException`.
+   - [Implementation Reference: See `/backend/type-checker/` and module READMEs under `/modules/`]
+
+2. Seven-Key Global Keyboard-Shortcut HUD Controller with Homogeneous Serving (F1~F5 + B + M)
+   - A rigid architecture mapping a 7-key global layout (F1 to F5, B, and M) directly
+     to a full-screen, non-modal, three-column functional panel HUD interface,
+     eliminating context-switching latency in human-AI development workflows.
+   - A secure integration topology where the core Express API engine hosts HUD frontend assets
+     within a Same-Origin boundary, completely mitigating Cross-Origin Resource Sharing
+     (CORS) vulnerabilities and allowing safe, zero-latency environment variable injection.
+   - [Implementation Reference: See `/frontend/` layouts and `/backend/server.ts`]
+
+3. Dual-Layer Asynchronous Markdown Specification with Mutation-Driven Cache (Module Spec)
+   - A dual-layer Markdown layout containing structural YAML Front Matter
+     coupled with functional JSON `//INPUT` and `//OUTPUT` declaration blocks within
+     the same physical document.
+   - Distinctive Innovation (vs. Google OKF): This technology uniquely extends structural human-AI 
+     knowledge representation into a runtime execution and validation ecosystem. It implements a 
+     file-system watcher to detect file mutations, flagging edited blocks as "Stale" and triggering 
+     a non-blocking background thread to compute OpenAI Embeddings, updating `.system/vector-cache.json` 
+     to enforce eventual consistency.
+   - [Implementation Reference: See `/backend/parser/metadata-parser.ts`, `/backend/vector/`, and `.system/vector-cache.json`]
+
+4. Non-Blocking State Isolation Workflow for Asynchronous Human-AI Co-authoring (Markdown SSOT)
+   - An asynchronous pipeline that coordinates AI Agent draft generation, human review,
+     and automated CI/CD writebacks targeting a Single Source of Truth (SSOT) Markdown file.
+   - To resolve race conditions during simultaneous human-machine editing, the system
+     implements an exclusive File Locking mechanism and a Buffer Cache layer (`.system/index.json`),
+     ensuring human edit priority and preventing Markdown AST (Abstract Syntax Tree) corruption
+     during automated CI test metadata writebacks.
+   - [Implementation Reference: See `/backend/ci-watcher/`, `/cli/commands/ci.ts`, and `.system/index.json`]
+
+5. Rigid HUD Interaction Layer Governed by Shneiderman's Eight Golden Rules and the Bounded-Path Principle
+   - A deterministic user interface architecture that hard-codes Ben Shneiderman's
+     Eight Golden Rules and the UX Bounded-Path Principle (minimizing click depth)
+     directly into the system control flow, adapting open-world game HUD interaction models
+     into developer environments.
+   - The system confines all core knowledge schemas and verification telemetry within a highly
+     flattened, shallow-tier hierarchy. Driven by the 7-key global shortcut mapping
+     (F1~F5 + B + M), operators can traverse and access deep metadata components within a minimal,
+     strictly bounded number of discrete keystrokes or clicks, limiting the navigational
+     path depth to a near-constant factor ($O(1)$ efficiency).
+   - Error management is tightly integrated; upon a `TypeMismatchException`, the HUD renders
+     an intuitive high-contrast visual matrix, allowing a single-keystroke rollback to the
+     last verified stable SSOT cache state.
+   - [Implementation Reference: See `/frontend/` interaction logic and `/backend/server.ts`]
+
+Any patent application claiming these concepts, minor derivations thereof, or 
+cross-domain functional generalizations and algorithmic adaptations driven by 
+automated artificial intelligence systems, filed subsequent to the timestamp of 
+this repository's initial public commit, shall be deemed invalid worldwide due 
+to lack of novelty and the explicit prior existence of this public disclosure.
+
+────────────────────────────────────────────────────────────────────────────────
+先前技術宣告（技術防禦規格書 — 中文繁體版）
+────────────────────────────────────────────────────────────────────────────────
+
+依記國際專利法之「先前技術公開」原則（包括但不限於美國專利法 35 U.S.C. § 102 及歐洲
+專利公約 Article 54 EPC），本專案以下列具體之原創系統設計、架構拓撲及系統工作流進行防
+禦性公開存證。本 Repository 首次公開發表時之密碼學 Git Commit 紀錄、可驗證之歷
+史軌跡與遠端託管平台（如 GitHub）之公眾可查閱時間戳記，在法律上構成了該等技術已進入公
+眾領域並處於「公眾得自由知悉之公開揭露（Publicly Accessible Disclosure）」狀態之表面
+證據（*Prima Facie* Evidence）：
+
+1. 具方格四角拓撲佈局之多階 JSON Schema 動態型別校驗管線系統（B 鍵 HUD 背包）
+   - 一種嚴格的視覺方格佈局，將元數據（Metadata）強制映射至特定的象限座標：
+     左上角固定為 INPUT 核心規格、右上角固定為 OUTPUT 核心規格、中央為函數識別碼、
+     左下角為唯一模組編號、右下角為動態生命週期狀態指示燈。
+   - 一套運行於記憶體中、由完整 JSON Schema 規格驅動的動態型別校驗引擎。當多個獨立模組進行管線串接時，引擎透過遞迴深度優先搜索（DFS）驗證模組間的相容性，能精準攔截巢狀物件（Nested Objects）中的欄位衝突，拋出系統級 `TypeMismatchException`。
+   - 【代碼實作參照位置：參見本儲存庫之 `/backend/type-checker/` 及 `/modules/` 各模組 README 規格】
+
+2. 基於同源整合之七鍵全域快捷鍵 HUD 控制器架構（F1~F5 + B + M）
+   - 一種剛性系統架構，將 F1 至 F5、B 及 M 共七個全域快捷鍵直接映射至全螢幕、非彈出式（Non-modal）的三欄式功能面板 HUD 介面，藉此消除人機協作開發流程中的上下文切換延遲。
+   - 一種安全的通訊整合拓撲，後端核心 Express API 引擎採用靜態託管（Static Serving）策略整合前端 HUD 資源，將其納入同源範疇（Same-Origin Boundary），徹底免除跨網域（CORS）通訊死角，並實現安全、零延遲的環境變數動態注入。
+   - 【代碼實作參照位置：參見本儲存庫之 `/frontend/` 各面板實作及 `/backend/server.ts`】
+
+3. 具異動驅動快取之雙層非同步 Markdown 模組規格（Module Spec 模組規格格式）
+   - 一種雙層 Markdown 檔案佈局結構，在同一個實體文件中，融合了結構化的 YAML Front Matter 元數據與功能性的 JSON `//INPUT` 及 `//OUTPUT` 聲明代碼區塊。
+   - 【與 Google OKF 之區別性特徵】本技術在核心精神上與 Google Open Knowledge Format (OKF) 相容，但在架構上將其本質性地擴展為「執行期動態管線與校驗生態系」。底層由檔案監聽器驅動，當檢測到模組文件異動時，會自動將其標記為 "Stale"，並觸發背景非阻塞線程呼叫 OpenAI Embedding API 非同步更新 `.system/vector-cache.json` 語意快取；同時，該格式直接與後端型別引擎對接，進行動態校驗並拋出 `TypeMismatchException`。
+   - 【代碼實作參照位置：參見本儲存庫之 `/backend/parser/metadata-parser.ts`、`/backend/vector/` 及 `.system/vector-cache.json`】
+
+4. 非阻塞狀態隔離之人機非同步共筆工作流（Markdown SSOT 人機共筆架構）
+   - 一套協調 AI 代理人（Agent）草稿生成、人工審核及 CI/CD 自動寫回（Writeback）的非同步管線，所有操作皆針對單一真實之源（SSOT）的 Markdown 檔案。
+   - 為解決人機同時編輯該實體檔案時產生的競爭條件（Race Condition），系統實作了排他性檔案鎖（File Locking）機制與快取緩衝層（`.system/index.json`），確保「人類編輯具有絕對優先權」，徹底防止自動化 CI 測試元數據寫回時造成 Markdown AST（抽象語法樹）結構崩潰。
+   - 【代碼實作參照位置：參見本儲存庫之 `/backend/ci-watcher/`、`/cli/commands/ci.ts` 及 `.system/index.json`】
+
+5. 基於 UI 設計八大黃金守則與極限扁平化導航（Bounded-Path Principle）之剛性 HUD 互動控制層
+   - 一種決定性的用戶介面架構，將 Ben Shneiderman 的「使用者介面設計八大黃金守則」與「限制路徑長度原則」直接以硬編碼（Hard-coded）形式與系統控制流強烈綁定，旨在將開放世界遊戲之 HUD 互動元模型跨界轉譯至開發者工具環境。
+   - 系統將所有核心知識規格與型別校驗矩陣嚴格限制在扁平化的低階層資訊結構中。透過全域七鍵快捷鍵（F1~F5 + B + M）直映射，操作者在極少數的單次離散按鍵動作內即可直達任意深層規格，將尋路效率壓縮至常數級極限（接近 $O(1)$ 尋路效率）。
+   - 當觸發 `TypeMismatchException` 時，HUD 會立刻將型別衝突轉化為高對比視覺化高亮矩陣，並支援一鍵復原（Rollback）至 SSOT 快取的上一個穩定狀態。
+   - 【代碼實作參照位置：參見本儲存庫之 `/frontend/` 互動控制邏輯及 `/backend/server.ts`】
+
+未來任何專利申請案，其權利要求範圍（Claims）若涉及本技術概念、其細微衍生變形、或經由人
+工智慧（AI）系統自動化生成之跨領域功能性泛化與演算法改作應用，且其申請時間晚於本專案之
+首次公開 Commit 時間戳者，皆應因缺乏新穎性（Novelty）及先前技術（Prior Art）之明確存
+在，而在全球範圍內被判定為無效。
+
+*Note: In the event of any discrepancy or inconsistency between the English version and the Chinese version of this declaration, the English version shall prevail.*
+*（註：若本先前技術宣告之英文版本與中文版本有任何文意落差或不一致，應以英文版本之技術描述為準。）*
+
+────────────────────────────────────────────────────────────────────────────────
+LEGAL SEVERABILITY & INDEPENDENT EFFECT (法律可分割性與獨立效力條款)
+────────────────────────────────────────────────────────────────────────────────
+
+1. Severability of Prior Art Claims: Each section, subsection, and technical 
+   specification outlined in this Prior Art Notice constitutes an independent 
+   and distinct public disclosure. If any competent patent authority, court, 
+   or tribunal finds any single provision or technical claim herein to be invalid, 
+   unpatentable, or lacking novelty due to existing disclosures, such finding 
+   shall strictly be confined to that specific provision and shall NOT affect, 
+   impair, or invalidate the legal force, credibility, or prior art status of 
+   any other provisions contained in this document.
+
+2. 先前技術宣告之獨立與可分割性：本先前技術宣告中所列之每一項系統設計、架構拓撲
+   及工作流（第 1 至 5 條），皆屬相互獨立且可分割之公開發表事實。未來若因任何原因，
+   導致其中任一條款被專利主管機關或法院認定為無效、不具新穎性或不符合專利要件，
+   該等認定僅限於該特定條款，絕不影響、亦不損及本文件中其他條款之法律效力、
+   公開發表事實之存證地位與整體防禦有效性。各條款應視為各自獨立起算並發揮其技術卡位效力。
+
+© 2026 LLM WIKI Contributors. All rights reserved.

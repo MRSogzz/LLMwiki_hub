@@ -1,0 +1,43 @@
+{
+  "id": "default",
+  "name": "深空",
+  "description": "預設深色科幻風格",
+  "version": "1.0.0",
+  "colors": {
+    "accent":       "#E8C873",
+    "accent2":      "#F5A623",
+    "text":         "#f0ead8",
+    "muted":        "rgba(255,255,255,0.4)",
+    "border":       "rgba(232,200,115,0.25)",
+    "border2":      "rgba(232,200,115,0.6)",
+    "panelBg":      "rgba(8,12,22,0.92)",
+    "keyBg":        "rgba(0,0,0,0.45)",
+    "questBg":      "rgba(0,0,0,0.55)",
+    "overlayColor": "rgba(0,0,0,0.82)",
+    "bgBlur":       "12px",
+    "hpColor":      "#4CAF50",
+    "hpColor2":     "#8BC34A"
+  },
+  "assets": {
+    "bg":           "assets/themes/default/bg/bg.jpg",
+    "minimap":      "assets/themes/default/minimap/minimap.png",
+    "keys": {
+      "f1":         "assets/themes/default/keys/key-f1.png",
+      "f2":         "assets/themes/default/keys/key-f2.png",
+      "f3":         "assets/themes/default/keys/key-f3.png",
+      "f4":         "assets/themes/default/keys/key-f4.png",
+      "b":          "assets/themes/default/keys/key-b.png",
+      "m":          "assets/themes/default/keys/key-m.png"
+    },
+    "avatars": {
+      "0":          "assets/themes/default/avatars/avatar-0.png",
+      "1":          "assets/themes/default/avatars/avatar-1.png",
+      "2":          "assets/themes/default/avatars/avatar-2.png"
+    }
+  },
+  "layout": {
+    "minimapSize":  130,
+    "keyBtnSize":   44,
+    "charCardWidth": 52
+  }
+}

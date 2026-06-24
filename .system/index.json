@@ -1,0 +1,78 @@
+{
+  "1": {
+    "id": 1,
+    "name": "tokenize",
+    "status": "DONE",
+    "latency": "~12ms",
+    "author": "alice",
+    "created": "Wed Jun 18 2025 08:00:00 GMT+0800 (台北標準時間)",
+    "updated": "Wed Jun 18 2025 08:00:00 GMT+0800 (台北標準時間)",
+    "tags": [
+      "nlp",
+      "tokenizer",
+      "preprocessing",
+      "bpe"
+    ],
+    "filePath": "modules\\tokenize\\README.md",
+    "input": {
+      "type": "string",
+      "description": "原始輸入文字，支援中英文混合",
+      "example": "LLM WIKI 是人機協作系統"
+    },
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "切詞後的 token 陣列",
+      "example": [
+        "LLM",
+        "WIKI",
+        "是",
+        "人機",
+        "協作",
+        "系統"
+      ]
+    },
+    "description": "文字切詞模組，使用 BPE（Byte-Pair Encoding）分詞演算法。\n支援中英文混合輸入，輸出正規化 token 陣列。"
+  },
+  "2": {
+    "id": 2,
+    "name": "embedVec",
+    "status": "DONE",
+    "latency": "~45ms",
+    "author": "bob",
+    "created": "Wed Jun 18 2025 08:00:00 GMT+0800 (台北標準時間)",
+    "updated": "Wed Jun 18 2025 08:00:00 GMT+0800 (台北標準時間)",
+    "tags": [
+      "embedding",
+      "vector",
+      "semantic",
+      "openai"
+    ],
+    "filePath": "modules\\embedVec\\README.md",
+    "input": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "token 陣列（來自 tokenize() 輸出）",
+      "example": [
+        "LLM",
+        "WIKI",
+        "人機",
+        "協作"
+      ]
+    },
+    "output": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "description": "1536 維語意嵌入向量",
+      "minItems": 1536,
+      "maxItems": 1536
+    },
+    "description": "語意向量化模組。將 token 陣列轉換為高維語意嵌入向量。\n預設使用 OpenAI text-embedding-3-small（1536 維）。"
+  }
+}

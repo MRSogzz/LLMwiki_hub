@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM WIKI — F3 知識圖鑑</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #080B14;
+      color: #C8D6F0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Search bar ── */
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 0.5px solid rgba(58,127,213,0.2);
+      flex-shrink: 0;
+    }
+
+    .search-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      color: #3A7FD5;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .search-input {
+      flex: 1;
+      background: rgba(12,18,35,0.9);
+      border: 0.5px solid rgba(58,127,213,0.3);
+      border-radius: 4px;
+      padding: 7px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #E0ECFF;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-input:focus { border-color: rgba(58,127,213,0.7); }
+    .search-input::placeholder { color: rgba(138,157,192,0.4); }
+
+    .search-mode {
+      display: flex;
+      gap: 4px;
+    }
+    .mode-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      border: 0.5px solid rgba(58,127,213,0.3);
+      background: transparent;
+      color: #8A9DC0;
+      cursor: pointer;
+      transition: all 0.1s;
+    }
+    .mode-btn.active { background: rgba(58,127,213,0.15); color: #3A7FD5; border-color: rgba(58,127,213,0.5); }
+
+    /* ── Body: sidebar + results ── */
+    .body {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Sidebar: domain tree */
+    .sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 0.5px solid rgba(58,127,213,0.15);
+      overflow-y: auto;
+      padding: 12px 8px;
+    }
+
+    .tree-domain {
+      font-size: 10px;
+      font-weight: 700;
+      color: #3A7FD5;
+      letter-spacing: 0.1em;
+      padding: 6px 8px 4px;
+      text-transform: uppercase;
+    }
+    .tree-topic {
+      font-size: 10px;
+      color: #A97FE8;
+      padding: 3px 8px 3px 18px;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background 0.1s;
+    }
+    .tree-topic:hover   { background: rgba(169,127,232,0.08); }
+    .tree-topic.active  { background: rgba(169,127,232,0.15); color: #C8D6F0; }
+    .tree-doc {
+      font-size: 9px;
+      color: #8A9DC0;
+      padding: 2px 8px 2px 30px;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: background 0.1s;
+    }
+    .tree-doc:hover  { background: rgba(58,127,213,0.08); color: #C8D6F0; }
+
+    /* Results pane */
+    .results {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+    }
+
+    .results-header {
+      font-size: 9px;
+      color: #8A9DC0;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
+    .doc-card {
+      background: rgba(12,18,35,0.8);
+      border: 0.5px solid rgba(58,127,213,0.2);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .doc-card:hover { border-color: rgba(58,127,213,0.5); background: rgba(12,18,35,0.95); }
+    .doc-card.active { border-color: rgba(58,127,213,0.7); background: rgba(58,127,213,0.06); }
+
+    .doc-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #E0ECFF;
+      margin-bottom: 4px;
+    }
+    .doc-path {
+      font-size: 9px;
+      color: #3A7FD5;
+      margin-bottom: 6px;
+      opacity: 0.7;
+    }
+    .doc-excerpt {
+      font-size: 10px;
+      color: #8A9DC0;
+      line-height: 1.6;
+    }
+    .doc-excerpt mark {
+      background: rgba(58,127,213,0.25);
+      color: #E0ECFF;
+      border-radius: 2px;
+      padding: 0 2px;
+    }
+
+    .doc-meta {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .doc-tag {
+      font-size: 8px;
+      padding: 1px 6px;
+      border-radius: 2px;
+      background: rgba(58,127,213,0.1);
+      color: #3A7FD5;
+      border: 0.5px solid rgba(58,127,213,0.3);
+    }
+
+    /* AI answer panel */
+    .ai-answer {
+      background: rgba(169,127,232,0.06);
+      border: 0.5px solid rgba(169,127,232,0.3);
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .ai-answer.visible { display: block; }
+    .ai-answer-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: #A97FE8;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ai-answer-text {
+      font-size: 11px;
+      color: #C8D6F0;
+      line-height: 1.7;
+    }
+
+    /* Empty state */
+    .empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+      color: #8A9DC0;
+    }
+    .empty-icon { font-size: 32px; opacity: 0.3; }
+    .empty-text { font-size: 11px; opacity: 0.5; }
+  </style>
+</head>
+<body>
+
+<!-- ── Search bar ── -->
+<div class="search-bar">
+  <div class="search-label">[ F3 ] 知識圖鑑</div>
+  <input class="search-input" id="search-input" type="text"
+    placeholder="搜尋知識庫... (Fuzzy / 向量語意搜尋)"
+    aria-label="知識庫搜尋" autocomplete="off" />
+  <div class="search-mode">
+    <button class="mode-btn active" id="mode-fuzzy"  onclick="setMode('fuzzy')">Fuzzy</button>
+    <button class="mode-btn"        id="mode-vector" onclick="setMode('vector')">向量</button>
+  </div>
+</div>
+
+<!-- ── Body ── -->
+<div class="body">
+
+  <!-- Sidebar tree -->
+  <nav class="sidebar" aria-label="知識庫目錄樹">
+    <div class="tree-domain">llm-wiki</div>
+    <div class="tree-topic" onclick="filterDomain('architecture')">architecture</div>
+    <div class="tree-doc"   onclick="openDoc('system-overview')">system-overview.md</div>
+    <div class="tree-doc"   onclick="openDoc('data-flow')">data-flow.md</div>
+    <div class="tree-topic" onclick="filterDomain('modules')">modules</div>
+    <div class="tree-doc"   onclick="openDoc('tokenize')">tokenize.md</div>
+    <div class="tree-doc"   onclick="openDoc('embedVec')">embedVec.md</div>
+    <div class="tree-doc"   onclick="openDoc('typeCheck')">typeCheck.md</div>
+
+    <div class="tree-domain">api-reference</div>
+    <div class="tree-topic" onclick="filterDomain('endpoints')">endpoints</div>
+    <div class="tree-doc"   onclick="openDoc('parse-api')">parse.md</div>
+    <div class="tree-doc"   onclick="openDoc('validate-api')">validate.md</div>
+    <div class="tree-topic" onclick="filterDomain('schemas')">schemas</div>
+    <div class="tree-doc"   onclick="openDoc('module-schema')">module-schema.md</div>
+
+    <div class="tree-domain">meetings</div>
+    <div class="tree-topic" onclick="filterDomain('2025-Q2')">2025-Q2</div>
+    <div class="tree-doc"   onclick="openDoc('kickoff')">kickoff-2025-06-01.md</div>
+    <div class="tree-doc"   onclick="openDoc('sprint-review')">sprint-review-2025-06-15.md</div>
+  </nav>
+
+  <!-- Results pane -->
+  <main class="results" id="results" aria-label="搜尋結果">
+    <div class="ai-answer" id="ai-answer">
+      <div class="ai-answer-label">✦ AI 向量語意摘要</div>
+      <div class="ai-answer-text" id="ai-answer-text"></div>
+    </div>
+    <div class="results-header" id="results-header">所有文件 — 11 筆</div>
+    <div id="doc-list"></div>
+  </main>
+</div>
+
+<script>
+// ── Document corpus (mock; replace with GET /api/docs in production) ──────────
+const DOCS = [
+  { id:'system-overview', title:'System Overview',           path:'docs/llm-wiki/architecture/system-overview.md',   excerpt:'LLM WIKI 以 Markdown + Git 為單一事實來源，透過六個 HUD 快捷鍵模組整合知識管理與代碼 I/O。', tags:['architecture','hud','ssot'],          status:'DONE' },
+  { id:'data-flow',       title:'Data Flow Architecture',    path:'docs/llm-wiki/architecture/data-flow.md',          excerpt:'元數據解析引擎監聽 modules/ 目錄，解析 YAML Front Matter 與 I/O JSON Block，更新記憶體索引。', tags:['architecture','parser','yaml'],        status:'DONE' },
+  { id:'tokenize',        title:'tokenize() Module',         path:'docs/llm-wiki/modules/tokenize.md',                excerpt:'文字切詞模組。INPUT: STR，OUTPUT: ARR。使用 BPE 分詞算法，平均延遲 ~12ms。',              tags:['module','nlp','str->arr'],            status:'DONE' },
+  { id:'embedVec',        title:'embedVec() Module',         path:'docs/llm-wiki/modules/embedVec.md',                excerpt:'語意向量化模組。INPUT: ARR，OUTPUT: ARR。使用 text-embedding-3-small，延遲 ~45ms。',      tags:['module','embedding','arr->arr'],      status:'DONE' },
+  { id:'typeCheck',       title:'typeCheck() Module',        path:'docs/llm-wiki/modules/typeCheck.md',               excerpt:'動態泛型相容性偵測。ANY 可接收任意型別。NUM 為 INT/FLOAT 的超集。延遲 ~1ms。',           tags:['module','type-system','any->bool'],   status:'DONE' },
+  { id:'parse-api',       title:'POST /api/parse',           path:'docs/api-reference/endpoints/parse.md',            excerpt:'解析 Markdown 文件並返回 YAML Front Matter 與 I/O Schema JSON。',                        tags:['api','parse','endpoint'],             status:'DONE' },
+  { id:'validate-api',    title:'POST /api/validate',        path:'docs/api-reference/endpoints/validate.md',         excerpt:'校驗兩個模組的 OUTPUT→INPUT 型別相容性，返回 { compatible: bool, error?: string }。',   tags:['api','validate','type-check'],        status:'DONE' },
+  { id:'module-schema',   title:'Module JSON Schema',        path:'docs/api-reference/schemas/module-schema.md',      excerpt:'模組標準 JSON Schema 定義，包含 id, name, input, output, status, latency 欄位規格。',    tags:['schema','json','spec'],               status:'DONE' },
+  { id:'kickoff',         title:'專案啟動會議紀錄',           path:'docs/meetings/2025-Q2/kickoff-2025-06-01.md',       excerpt:'確立 Markdown SSOT 原則，決議採用 CC BY-NC-SA 4.0 + GPL v3 雙軌授權。',                   tags:['meeting','decision','license'],       status:'DONE' },
+  { id:'sprint-review',   title:'Sprint Review 2025-06-15', path:'docs/meetings/2025-Q2/sprint-review-2025-06-15.md', excerpt:'Phase 1 解析引擎完成。Phase 2 HUD 快捷鍵 75% 完成。ciCapture 模組進入 WIP 狀態。',       tags:['meeting','sprint','progress'],        status:'DONE' },
+  { id:'module-schema-2', title:'Prior Art 宣告',            path:'docs/llm-wiki/architecture/prior-art.md',           excerpt:'元素週期表風 I/O 代碼背包及 F1~F4+B+M HUD 架構為本專案原創設計，Git 時間戳為先前技術證明。', tags:['legal','prior-art','ip'],             status:'DONE' },
+];
+
+let searchMode = 'fuzzy';
+let activeDocId = null;
+
+// ── Mode toggle ───────────────────────────────────────────────────────────────
+function setMode(mode) {
+  searchMode = mode;
+  document.getElementById('mode-fuzzy').classList.toggle('active',  mode === 'fuzzy');
+  document.getElementById('mode-vector').classList.toggle('active', mode === 'vector');
+  doSearch(document.getElementById('search-input').value);
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function fuzzyScore(query, text) {
+  // Simple character-subsequence fuzzy match, returns 0-1 score
+  if (!query) return 1;
+  query = query.toLowerCase();
+  text  = text.toLowerCase();
+  let qi = 0;
+  for (let i = 0; i < text.length && qi < query.length; i++) {
+    if (text[i] === query[qi]) qi++;
+  }
+  return qi === query.length ? qi / text.length : 0;
+}
+
+function highlight(text, query) {
+  if (!query) return text;
+  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return text.replace(re, '<mark>$1</mark>');
+}
+
+function doSearch(query) {
+  const q = query.trim();
+  let results = DOCS;
+
+  if (q) {
+    results = DOCS
+      .map(doc => {
+        const haystack = doc.title + ' ' + doc.excerpt + ' ' + doc.tags.join(' ');
+        const score = fuzzyScore(q, haystack);
+        return { ...doc, score };
+      })
+      .filter(d => d.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    // Show AI answer panel for vector mode (mock)
+    if (searchMode === 'vector') {
+      document.getElementById('ai-answer').classList.add('visible');
+      document.getElementById('ai-answer-text').textContent =
+        `根據語意搜尋，與「${q}」最相關的概念是：` +
+        (results[0] ? results[0].excerpt : '找不到相關文件。');
+    } else {
+      document.getElementById('ai-answer').classList.remove('visible');
+    }
+  } else {
+    document.getElementById('ai-answer').classList.remove('visible');
+  }
+
+  renderResults(results, q);
+}
+
+function renderResults(docs, query) {
+  document.getElementById('results-header').textContent =
+    `${query ? '搜尋結果' : '所有文件'} — ${docs.length} 筆`;
+
+  const list = document.getElementById('doc-list');
+  list.innerHTML = '';
+
+  if (!docs.length) {
+    list.innerHTML = '<div class="empty"><div class="empty-icon">◎</div><div class="empty-text">找不到符合的文件</div></div>';
+    return;
+  }
+
+  docs.forEach(doc => {
+    const card = document.createElement('div');
+    card.className = 'doc-card' + (doc.id === activeDocId ? ' active' : '');
+    card.setAttribute('role', 'article');
+    card.setAttribute('aria-label', doc.title);
+
+    const statusColor = doc.status === 'DONE' ? '#00C97A' : doc.status === 'WIP' ? '#A97FE8' : '#FF4D6A';
+
+    card.innerHTML = `
+      <div class="doc-title">${highlight(doc.title, query)}</div>
+      <div class="doc-path">${doc.path}</div>
+      <div class="doc-excerpt">${highlight(doc.excerpt, query)}</div>
+      <div class="doc-meta">
+        ${doc.tags.map(t => `<span class="doc-tag">${t}</span>`).join('')}
+        <span class="doc-tag" style="color:${statusColor};border-color:${statusColor}40;background:${statusColor}10">${doc.status}</span>
+      </div>
+    `;
+    card.addEventListener('click', () => openDoc(doc.id));
+    list.appendChild(card);
+  });
+}
+
+function openDoc(id) {
+  activeDocId = id;
+  renderResults(
+    document.getElementById('search-input').value
+      ? DOCS.filter(d => fuzzyScore(document.getElementById('search-input').value, d.title + d.excerpt) > 0)
+      : DOCS,
+    document.getElementById('search-input').value
+  );
+}
+
+function filterDomain(domain) {
+  document.querySelectorAll('.tree-topic').forEach(el => {
+    el.classList.toggle('active', el.textContent.trim() === domain);
+  });
+  document.getElementById('search-input').value = domain;
+  doSearch(domain);
+}
+
+// ── Event listeners ───────────────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('input', e => {
+  doSearch(e.target.value);
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderResults(DOCS, '');
+</script>
+</body>
+</html>

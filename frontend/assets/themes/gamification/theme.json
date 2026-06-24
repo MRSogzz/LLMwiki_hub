@@ -1,0 +1,43 @@
+{
+  "id": "gamification",
+  "name": "原神",
+  "description": "仿原神 UI 風格，金色 HUD 主調",
+  "version": "1.0.0",
+  "colors": {
+    "accent":       "#E8C873",
+    "accent2":      "#F5A623",
+    "text":         "#f0ead8",
+    "muted":        "rgba(255,255,255,0.4)",
+    "border":       "rgba(232,200,115,0.3)",
+    "border2":      "rgba(232,200,115,0.65)",
+    "panelBg":      "rgba(12,18,35,0.93)",
+    "keyBg":        "rgba(0,0,0,0.5)",
+    "questBg":      "rgba(0,0,0,0.6)",
+    "overlayColor": "rgba(5,10,22,0.85)",
+    "bgBlur":       "10px",
+    "hpColor":      "#4CAF50",
+    "hpColor2":     "#8BC34A"
+  },
+  "assets": {
+    "bg":           "assets/themes/gamification/bg/bg.jpg",
+    "minimap":      "assets/themes/gamification/minimap/minimap.png",
+    "keys": {
+      "f1":         "assets/themes/gamification/keys/key-f1.png",
+      "f2":         "assets/themes/gamification/keys/key-f2.png",
+      "f3":         "assets/themes/gamification/keys/key-f3.png",
+      "f4":         "assets/themes/gamification/keys/key-f4.png",
+      "b":          "assets/themes/gamification/keys/key-b.png",
+      "m":          "assets/themes/gamification/keys/key-m.png"
+    },
+    "avatars": {
+      "0":          "assets/themes/gamification/avatars/avatar-0.png",
+      "1":          "assets/themes/gamification/avatars/avatar-1.png",
+      "2":          "assets/themes/gamification/avatars/avatar-2.png"
+    }
+  },
+  "layout": {
+    "minimapSize":  130,
+    "keyBtnSize":   44,
+    "charCardWidth": 52
+  }
+}

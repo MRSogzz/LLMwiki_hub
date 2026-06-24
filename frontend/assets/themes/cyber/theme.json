@@ -1,0 +1,43 @@
+{
+  "id": "cyber",
+  "name": "賽博",
+  "description": "賽博龐克電光綠風格",
+  "version": "1.0.0",
+  "colors": {
+    "accent":       "#00FFB3",
+    "accent2":      "#00E5FF",
+    "text":         "#CCFFE8",
+    "muted":        "rgba(0,255,179,0.4)",
+    "border":       "rgba(0,255,179,0.25)",
+    "border2":      "rgba(0,255,179,0.6)",
+    "panelBg":      "rgba(4,12,10,0.93)",
+    "keyBg":        "rgba(0,20,15,0.55)",
+    "questBg":      "rgba(0,20,15,0.65)",
+    "overlayColor": "rgba(4,12,10,0.88)",
+    "bgBlur":       "8px",
+    "hpColor":      "#00FFB3",
+    "hpColor2":     "#00E5FF"
+  },
+  "assets": {
+    "bg":           "assets/themes/cyber/bg/bg.jpg",
+    "minimap":      "assets/themes/cyber/minimap/minimap.png",
+    "keys": {
+      "f1":         "assets/themes/cyber/keys/key-f1.png",
+      "f2":         "assets/themes/cyber/keys/key-f2.png",
+      "f3":         "assets/themes/cyber/keys/key-f3.png",
+      "f4":         "assets/themes/cyber/keys/key-f4.png",
+      "b":          "assets/themes/cyber/keys/key-b.png",
+      "m":          "assets/themes/cyber/keys/key-m.png"
+    },
+    "avatars": {
+      "0":          "assets/themes/cyber/avatars/avatar-0.png",
+      "1":          "assets/themes/cyber/avatars/avatar-1.png",
+      "2":          "assets/themes/cyber/avatars/avatar-2.png"
+    }
+  },
+  "layout": {
+    "minimapSize":  130,
+    "keyBtnSize":   44,
+    "charCardWidth": 52
+  }
+}

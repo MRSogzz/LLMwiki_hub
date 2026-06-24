@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM WIKI — B 背包 代碼 I/O 週期表</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #04060E;
+      color: #C8D6F0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    /* ── Root container ── */
+    .b-root {
+      font-family: 'JetBrains Mono', monospace;
+      background: #080B14;
+      color: #C8D6F0;
+      padding: 20px;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .b-root::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #3A7FD5, #7B4FD6, transparent);
+    }
+
+    /* ── Header ── */
+    .hud-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 0.5px solid rgba(58,127,213,0.3);
+    }
+
+    .hud-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      color: #3A7FD5;
+      text-transform: uppercase;
+    }
+
+    .hud-key {
+      font-size: 10px;
+      background: rgba(58,127,213,0.15);
+      border: 0.5px solid rgba(58,127,213,0.4);
+      color: #3A7FD5;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    /* ── Status pills ── */
+    .status-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+    .stat-pill {
+      font-size: 10px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 0.5px solid;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .stat-pill.blue   { color:#3A7FD5; border-color:rgba(58,127,213,.4);  background:rgba(58,127,213,.08);  }
+    .stat-pill.green  { color:#00C97A; border-color:rgba(0,201,122,.4);   background:rgba(0,201,122,.08);   }
+    .stat-pill.red    { color:#FF4D6A; border-color:rgba(255,77,106,.4);  background:rgba(255,77,106,.08);  }
+    .stat-pill.purple { color:#A97FE8; border-color:rgba(169,127,232,.4); background:rgba(169,127,232,.08); }
+    .stat-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+    /* ── Type legend ── */
+    .type-legend { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+
+    .type-tag {
+      font-size: 9px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Periodic Grid ── */
+    .periodic-grid {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 5px;
+      margin-bottom: 16px;
+    }
+
+    /*
+     * CELL LAYOUT (v2 — revised per spec):
+     *
+     *  ┌─────────────────────┐
+     *  │ INPUT         OUTPUT│  ← row 1: left=input type, right=output type
+     *  │                     │
+     *  │      funcName()     │  ← row 2: centered function name
+     *  │                     │
+     *  │ #01            DONE │  ← row 3: left=id, right=status
+     *  └─────────────────────┘
+     */
+    .cell {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      border: 0.5px solid;
+      padding: 4px 5px;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.15s, transform 0.1s;
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: 1px;
+      background: rgba(8,11,20,0.8);
+      user-select: none;
+    }
+
+    .cell:hover       { transform: scale(1.05); z-index: 10; }
+    .cell.selected    { transform: scale(1.07); z-index: 20; }
+    .cell.compatible  { animation: pulse-ok  1s   infinite alternate; }
+    .cell.incompatible{ animation: pulse-err 0.5s infinite alternate; }
+    .cell.empty       { opacity: 0; pointer-events: none; cursor: default; }
+
+    @keyframes pulse-ok {
+      from { border-color: rgba(0,201,122,0.5);  box-shadow: 0 0 5px rgba(0,201,122,0.2);  }
+      to   { border-color: rgba(0,201,122,0.9);  box-shadow: 0 0 10px rgba(0,201,122,0.35); }
+    }
+    @keyframes pulse-err {
+      from { border-color: rgba(255,77,106,0.5); }
+      to   { border-color: rgba(255,77,106,0.9); box-shadow: 0 0 8px rgba(255,77,106,0.35); }
+    }
+
+    /* Cell sub-elements */
+    .cell-in {
+      font-size: 8px; font-weight: 700; letter-spacing: 0.03em;
+      grid-column: 1; grid-row: 1;
+      align-self: start; justify-self: start;
+      line-height: 1;
+    }
+    .cell-out {
+      font-size: 8px; font-weight: 700; letter-spacing: 0.03em;
+      grid-column: 2; grid-row: 1;
+      align-self: start; justify-self: end;
+      line-height: 1;
+    }
+    .cell-name {
+      font-size: 9px; font-weight: 700; color: #E0ECFF;
+      grid-column: 1 / 3; grid-row: 2;
+      align-self: center; justify-self: center;
+      text-align: center; line-height: 1.15;
+      word-break: break-word;
+    }
+    .cell-num {
+      font-size: 7px;
+      grid-column: 1; grid-row: 3;
+      align-self: end; justify-self: start;
+      opacity: 0.55; line-height: 1;
+    }
+    .cell-status {
+      font-size: 7px; font-weight: 700;
+      grid-column: 2; grid-row: 3;
+      align-self: end; justify-self: end;
+      line-height: 1; letter-spacing: 0.03em;
+    }
+
+    /* ── Detail panel ── */
+    .detail-panel {
+      border: 0.5px solid rgba(58,127,213,0.35);
+      border-radius: 6px;
+      background: rgba(12,18,35,0.9);
+      padding: 14px;
+      margin-bottom: 14px;
+      display: none;
+    }
+    .detail-panel.visible { display: block; }
+
+    .detail-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .detail-fn { font-size: 14px; font-weight: 700; color: #E0ECFF; }
+    .detail-badge { font-size: 9px; padding: 3px 8px; border-radius: 3px; font-weight: 700; }
+
+    .io-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+    .io-block { border-radius: 4px; padding: 8px 10px; border: 0.5px solid; }
+    .io-block.input  { border-color: rgba(58,127,213,.4);  background: rgba(58,127,213,.06);  }
+    .io-block.output { border-color: rgba(169,127,232,.4); background: rgba(169,127,232,.06); }
+
+    .io-label {
+      font-size: 8px; letter-spacing: 0.15em; font-weight: 700;
+      opacity: 0.6; margin-bottom: 4px; text-transform: uppercase;
+    }
+    .io-block.input  .io-label { color: #3A7FD5; }
+    .io-block.output .io-label { color: #A97FE8; }
+
+    .io-schema { font-size: 10px; color: #C8D6F0; line-height: 1.5; }
+
+    /* ── Connect bar ── */
+    .connect-bar {
+      border-top: 0.5px solid rgba(58,127,213,0.2);
+      padding-top: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .connect-slot {
+      flex: 1; min-width: 120px;
+      border: 0.5px dashed rgba(58,127,213,0.35);
+      border-radius: 4px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+    }
+    .connect-slot.filled          { border-style: solid; border-color: rgba(58,127,213,.6);  background: rgba(58,127,213,.08);  }
+    .connect-slot.filled.compat   { border-color: rgba(0,201,122,.6);   background: rgba(0,201,122,.06);   }
+    .connect-slot.filled.incompat { border-color: rgba(255,77,106,.6);  background: rgba(255,77,106,.06);  }
+
+    .arrow-icon { color: rgba(58,127,213,0.5); font-size: 14px; flex-shrink: 0; }
+
+    .compat-msg { font-size: 10px; padding: 5px 12px; border-radius: 4px; font-weight: 700; }
+    .compat-msg.ok  { color:#00C97A; background:rgba(0,201,122,.1);  border:0.5px solid rgba(0,201,122,.4);  }
+    .compat-msg.err { color:#FF4D6A; background:rgba(255,77,106,.1); border:0.5px solid rgba(255,77,106,.4); }
+
+    .action-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 5px 12px;
+      border-radius: 4px;
+      border: 0.5px solid rgba(58,127,213,0.4);
+      background: rgba(58,127,213,0.1);
+      color: #3A7FD5;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      transition: background 0.15s;
+    }
+    .action-btn:hover { background: rgba(58,127,213,0.2); }
+    .action-btn.ask   { border-color: rgba(169,127,232,.4); background: rgba(169,127,232,.08); color: #A97FE8; }
+    .action-btn.ask:hover { background: rgba(169,127,232,.18); }
+  </style>
+</head>
+<body>
+<div class="b-root">
+  <div class="hud-header">
+    <div class="hud-title">[ B ] 模組背包 — 代碼 I/O 週期表 v2</div>
+    <div class="hud-key">B</div>
+  </div>
+
+  <div class="status-row">
+    <div class="stat-pill blue"><div class="stat-dot"></div>18 模組已載入</div>
+    <div class="stat-pill green"><div class="stat-dot"></div>14 DONE</div>
+    <div class="stat-pill red"><div class="stat-dot"></div>2 BLOCKED</div>
+    <div class="stat-pill purple"><div class="stat-dot"></div>2 WIP</div>
+  </div>
+
+  <div class="type-legend" id="legend"></div>
+  <div class="periodic-grid" id="grid"></div>
+
+  <!-- Detail panel (shown on cell click) -->
+  <div class="detail-panel" id="detail">
+    <div class="detail-header">
+      <div>
+        <div style="font-size:10px;opacity:.5;margin-bottom:3px;text-transform:uppercase;letter-spacing:.1em" id="detail-num"></div>
+        <div class="detail-fn" id="detail-fn"></div>
+        <div style="font-size:11px;color:#8A9DC0;margin-top:3px" id="detail-desc"></div>
+      </div>
+      <div id="detail-badge" class="detail-badge"></div>
+    </div>
+    <div class="io-row">
+      <div class="io-block input">
+        <div class="io-label">// INPUT</div>
+        <div class="io-schema" id="detail-in"></div>
+      </div>
+      <div class="io-block output">
+        <div class="io-label">// OUTPUT</div>
+        <div class="io-schema" id="detail-out"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="action-btn" id="btn-slot-a">← 裝入槽 A</button>
+      <button class="action-btn" id="btn-slot-b">裝入槽 B →</button>
+      <button class="action-btn ask" id="btn-ask">詢問 AI 用法 ↗</button>
+    </div>
+  </div>
+
+  <!-- Type-check connect bar -->
+  <div class="connect-bar" id="connect-bar">
+    <div class="connect-slot" id="slot-a">
+      <span style="opacity:.4;color:#C8D6F0">槽 A:</span>
+      <span id="slot-a-label" style="opacity:.3;color:#C8D6F0;font-size:10px">— 空 —</span>
+    </div>
+    <div class="arrow-icon">→</div>
+    <div class="connect-slot" id="slot-b">
+      <span style="opacity:.4;color:#C8D6F0">槽 B:</span>
+      <span id="slot-b-label" style="opacity:.3;color:#C8D6F0;font-size:10px">— 空 —</span>
+    </div>
+    <div id="compat-msg" style="display:none" class="compat-msg"></div>
+    <button class="action-btn" id="btn-check" style="display:none">校驗型別</button>
+    <button class="action-btn" id="btn-clear" style="opacity:.5">清除槽</button>
+  </div>
+</div>
+
+<script>
+/**
+ * LLM WIKI — B Backpack Periodic Table
+ * Cell layout (v2):
+ *  ┌──────────────────────┐
+ *  │ INPUT          OUTPUT│
+ *  │       funcName       │
+ *  │ #01             DONE │
+ *  └──────────────────────┘
+ */
+
+// ── Type colour registry ──────────────────────────────────────────────────────
+const TYPES = {
+  STR:   { color: '#3A7FD5', bg: 'rgba(58,127,213,.12)',  border: 'rgba(58,127,213,.5)'  },
+  INT:   { color: '#00C97A', bg: 'rgba(0,201,122,.12)',   border: 'rgba(0,201,122,.5)'   },
+  FLOAT: { color: '#F5A623', bg: 'rgba(245,166,35,.12)',  border: 'rgba(245,166,35,.5)'  },
+  BOOL:  { color: '#FF8C42', bg: 'rgba(255,140,66,.12)',  border: 'rgba(255,140,66,.5)'  },
+  ARR:   { color: '#A97FE8', bg: 'rgba(169,127,232,.12)', border: 'rgba(169,127,232,.5)' },
+  OBJ:   { color: '#FF4D6A', bg: 'rgba(255,77,106,.12)',  border: 'rgba(255,77,106,.5)'  },
+  ANY:   { color: '#8A9DC0', bg: 'rgba(138,157,192,.12)', border: 'rgba(138,157,192,.5)' },
+  NUM:   { color: '#4ECDC4', bg: 'rgba(78,205,196,.12)',  border: 'rgba(78,205,196,.5)'  },
+};
+
+// ── Module data (sourced from modules/*/README.md YAML front matter) ──────────
+const MODULES = [
+  { id:1,  name:'tokenize',      input:'STR',   output:'ARR',   status:'DONE',    lat:'~12ms',  desc:'文字切詞，輸出 token 陣列'    },
+  { id:2,  name:'embedVec',      input:'ARR',   output:'ARR',   status:'DONE',    lat:'~45ms',  desc:'語意向量化，輸出嵌入矩陣'      },
+  { id:3,  name:'cosSim',        input:'ARR',   output:'FLOAT', status:'DONE',    lat:'~3ms',   desc:'餘弦相似度計算'               },
+  { id:4,  name:'rankDocs',      input:'FLOAT', output:'ARR',   status:'DONE',    lat:'~8ms',   desc:'依相似度排序文件'             },
+  { id:5,  name:'mdParse',       input:'STR',   output:'OBJ',   status:'DONE',    lat:'~6ms',   desc:'Markdown 解析為 AST'         },
+  { id:6,  name:'yamlMeta',      input:'OBJ',   output:'OBJ',   status:'DONE',    lat:'~2ms',   desc:'抽取 YAML Front Matter'       },
+  { id:7,  name:'schemaVal',     input:'OBJ',   output:'BOOL',  status:'DONE',    lat:'~4ms',   desc:'JSON Schema 型別校驗'         },
+  { id:8,  name:'typeCheck',     input:'ANY',   output:'BOOL',  status:'DONE',    lat:'~1ms',   desc:'動態泛型相容性偵測'           },
+  { id:9,  name:'gitDiff',       input:'STR',   output:'ARR',   status:'DONE',    lat:'~38ms',  desc:'解析 Git diff 行'             },
+  { id:10, name:'fzSearch',      input:'STR',   output:'ARR',   status:'DONE',    lat:'~15ms',  desc:'Fuzzy 全文搜尋'               },
+  { id:11, name:'renderMD',      input:'STR',   output:'STR',   status:'DONE',    lat:'~9ms',   desc:'Markdown 轉 HTML'            },
+  { id:12, name:'ciCapture',     input:'OBJ',   output:'OBJ',   status:'WIP',     lat:'~?ms',   desc:'CI/CD 真實 I/O 捕獲'         },
+  { id:13, name:'writeback',     input:'OBJ',   output:'BOOL',  status:'WIP',     lat:'~?ms',   desc:'測試結果寫回 Markdown'        },
+  { id:14, name:'milestoneParse',input:'OBJ',   output:'FLOAT', status:'DONE',    lat:'~5ms',   desc:'里程碑完成度解析'             },
+  { id:15, name:'llmCall',       input:'STR',   output:'STR',   status:'DONE',    lat:'~820ms', desc:'LLM API 非同步呼叫'           },
+  { id:16, name:'chunkSplit',    input:'STR',   output:'ARR',   status:'DONE',    lat:'~7ms',   desc:'長文切分語意段落'             },
+  { id:17, name:'rerank',        input:'ARR',   output:'ARR',   status:'BLOCKED', lat:'N/A',    desc:'Cross-encoder 重排序'         },
+  { id:18, name:'graphBuild',    input:'ARR',   output:'OBJ',   status:'BLOCKED', lat:'N/A',    desc:'知識圖譜節點構建'             },
+  null, null, null, // padding to fill last row of 9-column grid
+];
+
+const STATUS_COLORS = {
+  DONE:    { text:'#00C97A', bg:'rgba(0,201,122,.08)',   border:'rgba(0,201,122,.35)'   },
+  BLOCKED: { text:'#FF4D6A', bg:'rgba(255,77,106,.08)',  border:'rgba(255,77,106,.35)'  },
+  WIP:     { text:'#A97FE8', bg:'rgba(169,127,232,.08)', border:'rgba(169,127,232,.35)' },
+};
+
+// ── Type compatibility matrix ─────────────────────────────────────────────────
+// Returns true if typeA (output) can feed typeB (input).
+function isCompatible(typeA, typeB) {
+  if (typeA === typeB)     return true;
+  if (typeB === 'ANY')     return true;  // ANY accepts everything
+  if (typeA === 'ANY')     return true;  // ANY can output anything
+  if (typeB === 'NUM' && (typeA === 'INT' || typeA === 'FLOAT')) return true;
+  return false;
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let selectedId = null;
+let slotA = null;
+let slotB = null;
+
+function getModule(id) { return MODULES.find(m => m && m.id === id); }
+
+// ── Build type legend ─────────────────────────────────────────────────────────
+function buildLegend() {
+  const container = document.getElementById('legend');
+  Object.entries(TYPES).forEach(([key, val]) => {
+    const tag = document.createElement('div');
+    tag.className = 'type-tag';
+    tag.textContent = key;
+    tag.style.color      = val.color;
+    tag.style.background = val.bg;
+    tag.style.border     = '0.5px solid ' + val.border;
+    container.appendChild(tag);
+  });
+}
+
+// ── Build periodic grid ───────────────────────────────────────────────────────
+function buildGrid() {
+  const grid = document.getElementById('grid');
+
+  MODULES.forEach(mod => {
+    const cell = document.createElement('div');
+
+    if (!mod) {
+      cell.className = 'cell empty';
+      grid.appendChild(cell);
+      return;
+    }
+
+    const ti = TYPES[mod.input];
+    const to = TYPES[mod.output];
+    const sc = STATUS_COLORS[mod.status];
+
+    cell.className = 'cell';
+    cell.id        = 'cell-' + mod.id;
+    cell.style.borderColor = sc.border;
+    cell.style.background  = sc.bg;
+
+    // Row 1 — left: INPUT type, right: OUTPUT type
+    const inEl = document.createElement('div');
+    inEl.className   = 'cell-in';
+    inEl.textContent = mod.input;
+    inEl.style.color = ti.color;
+
+    const outEl = document.createElement('div');
+    outEl.className   = 'cell-out';
+    outEl.textContent = mod.output;
+    outEl.style.color = to.color;
+
+    // Row 2 — centered function name
+    const nameEl = document.createElement('div');
+    nameEl.className   = 'cell-name';
+    nameEl.textContent = mod.name;
+
+    // Row 3 — left: #id number, right: status symbol
+    const numEl = document.createElement('div');
+    numEl.className   = 'cell-num';
+    numEl.textContent = String(mod.id).padStart(2, '0');
+    numEl.style.color = sc.text;
+
+    const statusEl = document.createElement('div');
+    statusEl.className   = 'cell-status';
+    statusEl.textContent = mod.status === 'DONE' ? '✓' : mod.status === 'WIP' ? 'WIP' : '✗';
+    statusEl.style.color = sc.text;
+
+    cell.appendChild(inEl);
+    cell.appendChild(outEl);
+    cell.appendChild(nameEl);
+    cell.appendChild(numEl);
+    cell.appendChild(statusEl);
+
+    cell.addEventListener('click', () => selectModule(mod.id));
+    grid.appendChild(cell);
+  });
+}
+
+// ── Select / deselect module ──────────────────────────────────────────────────
+function selectModule(id) {
+  document.querySelectorAll('.cell').forEach(c =>
+    c.classList.remove('selected', 'compatible', 'incompatible')
+  );
+
+  if (selectedId === id) {
+    selectedId = null;
+    document.getElementById('detail').classList.remove('visible');
+    return;
+  }
+
+  selectedId = id;
+  const mod = getModule(id);
+  document.getElementById('cell-' + id).classList.add('selected');
+  showDetail(mod);
+  highlightCompatibility(mod);
+}
+
+// ── Highlight compatible / incompatible cells ─────────────────────────────────
+function highlightCompatibility(mod) {
+  MODULES.forEach(m => {
+    if (!m || m.id === mod.id) return;
+    const cell = document.getElementById('cell-' + m.id);
+    if (!cell) return;
+
+    // Can the selected module's output feed into m's input?
+    const canFeedInto = isCompatible(mod.output, m.input);
+    // Can m's output feed into the selected module's input?
+    const canFeedFrom = isCompatible(m.output, mod.input);
+
+    cell.classList.add(canFeedInto || canFeedFrom ? 'compatible' : 'incompatible');
+  });
+}
+
+// ── Show detail panel ─────────────────────────────────────────────────────────
+function showDetail(mod) {
+  const ti = TYPES[mod.input];
+  const to = TYPES[mod.output];
+  const sc = STATUS_COLORS[mod.status];
+
+  document.getElementById('detail-num').textContent  = '#' + String(mod.id).padStart(3, '0');
+  document.getElementById('detail-fn').textContent   = mod.name + '()';
+  document.getElementById('detail-desc').textContent = mod.desc;
+
+  const badge = document.getElementById('detail-badge');
+  badge.textContent       = mod.status;
+  badge.style.color       = sc.text;
+  badge.style.background  = sc.bg;
+  badge.style.border      = '0.5px solid ' + sc.border;
+
+  document.getElementById('detail-in').innerHTML =
+    `<span style="color:${ti.color}">${mod.input}</span>\n{ query: ${mod.input.toLowerCase()} }`;
+  document.getElementById('detail-out').innerHTML =
+    `<span style="color:${to.color}">${mod.output}</span>\n{ result: ${mod.output.toLowerCase()} }`;
+
+  document.getElementById('detail').classList.add('visible');
+
+  document.getElementById('btn-slot-a').onclick = () => setSlot('A', mod);
+  document.getElementById('btn-slot-b').onclick = () => setSlot('B', mod);
+  document.getElementById('btn-ask').onclick     = () => {
+    alert(`請向 LLM 詢問：\n${mod.name}() 的使用方式，${mod.input} → ${mod.output} TypeScript 實作範例`);
+  };
+}
+
+// ── Slot assignment ───────────────────────────────────────────────────────────
+function setSlot(slot, mod) {
+  if (slot === 'A') slotA = mod;
+  else              slotB = mod;
+  updateConnectBar();
+}
+
+// ── Connect bar UI ────────────────────────────────────────────────────────────
+function updateConnectBar() {
+  const saEl   = document.getElementById('slot-a');
+  const sbEl   = document.getElementById('slot-b');
+  const laEl   = document.getElementById('slot-a-label');
+  const lbEl   = document.getElementById('slot-b-label');
+  const msgEl  = document.getElementById('compat-msg');
+  const chkBtn = document.getElementById('btn-check');
+
+  // Slot A
+  if (slotA) {
+    const t = TYPES[slotA.output];
+    saEl.className = 'connect-slot filled';
+    laEl.innerHTML = `<span style="color:#E0ECFF;font-weight:700">${slotA.name}</span> `
+                   + `<span style="color:${t.color};opacity:.8">[OUT:${slotA.output}]</span>`;
+    laEl.style.opacity = '1';
+  } else {
+    saEl.className     = 'connect-slot';
+    laEl.textContent   = '— 空 —';
+    laEl.style.opacity = '.3';
+    laEl.style.color   = '#C8D6F0';
+  }
+
+  // Slot B
+  if (slotB) {
+    const t = TYPES[slotB.input];
+    sbEl.className = 'connect-slot filled';
+    lbEl.innerHTML = `<span style="color:#E0ECFF;font-weight:700">${slotB.name}</span> `
+                   + `<span style="color:${t.color};opacity:.8">[IN:${slotB.input}]</span>`;
+    lbEl.style.opacity = '1';
+  } else {
+    sbEl.className     = 'connect-slot';
+    lbEl.textContent   = '— 空 —';
+    lbEl.style.opacity = '.3';
+    lbEl.style.color   = '#C8D6F0';
+  }
+
+  // Compatibility check
+  if (slotA && slotB) {
+    const compat = isCompatible(slotA.output, slotB.input);
+    msgEl.style.display  = 'block';
+    chkBtn.style.display = 'block';
+
+    if (compat) {
+      msgEl.textContent = '✓ 型別相容';
+      msgEl.className   = 'compat-msg ok';
+      saEl.className    = 'connect-slot filled compat';
+      sbEl.className    = 'connect-slot filled compat';
+    } else {
+      msgEl.textContent = `✗ TypeMismatch: ${slotA.output} ≠ ${slotB.input}`;
+      msgEl.className   = 'compat-msg err';
+      saEl.className    = 'connect-slot filled incompat';
+      sbEl.className    = 'connect-slot filled incompat';
+    }
+
+    chkBtn.onclick = () => {
+      const msg = compat
+        ? `把 ${slotA.name}() [OUT:${slotA.output}] 串接到 ${slotB.name}() [IN:${slotB.input}]，生成 TypeScript Pipeline`
+        : `${slotA.name}() 輸出 ${slotA.output} 但 ${slotB.name}() 需要 ${slotB.input}，請提供 TypeAdapter`;
+      alert('LLM 提示：\n' + msg);
+    };
+  } else {
+    msgEl.style.display  = 'none';
+    chkBtn.style.display = 'none';
+  }
+}
+
+// ── Clear slots ───────────────────────────────────────────────────────────────
+document.getElementById('btn-clear').onclick = () => {
+  slotA = null;
+  slotB = null;
+  updateConnectBar();
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildLegend();
+buildGrid();
+updateConnectBar();
+</script>
+</body>
+</html>

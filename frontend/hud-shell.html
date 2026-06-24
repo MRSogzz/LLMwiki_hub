@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM WIKI — HUD Shell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style-tokens.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg-page);
+      color: var(--text-secondary);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top nav bar ── */
+    .nav-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: var(--bg-panel);
+      border-bottom: 0.5px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .nav-logo {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      letter-spacing: 0.15em;
+      margin-right: 12px;
+    }
+
+    .nav-key {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      border: 0.5px solid var(--border-subtle);
+      font-size: 10px;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .nav-key:hover             { border-color: var(--border-default); color: var(--text-secondary); }
+    .nav-key.active            { border-color: var(--border-strong);  color: var(--text-primary); background: rgba(58,127,213,.12); }
+    .nav-key .key-badge        { font-size: 9px; font-weight: 700; opacity: .6; }
+    .nav-key .key-label        { font-size: 9px; }
+
+    .nav-spacer { flex: 1; }
+
+    .nav-status {
+      font-size: 9px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--status-done); }
+
+    /* ── Main content area ── */
+    .main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Each panel is absolutely positioned, shown/hidden via .active */
+    .panel {
+      position: absolute;
+      inset: 0;
+      padding: 20px;
+      overflow-y: auto;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .panel.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* ── Welcome / idle screen ── */
+    .idle-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 24px;
+    }
+
+    .idle-logo {
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      letter-spacing: 0.1em;
+      text-shadow: 0 0 40px rgba(58,127,213,.3);
+    }
+
+    .idle-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      letter-spacing: 0.2em;
+    }
+
+    .key-hints {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .key-hint {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border: 0.5px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+    .key-hint kbd {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--accent-blue);
+      background: rgba(58,127,213,.1);
+      border: 0.5px solid rgba(58,127,213,.3);
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    /* ── Panel headers (shared style) ── */
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 0.5px solid var(--border-subtle);
+    }
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      color: var(--accent-blue);
+      text-transform: uppercase;
+    }
+
+    /* ── F1: Markdown editor placeholder ── */
+    .md-editor {
+      width: 100%;
+      height: calc(100vh - 140px);
+      background: var(--bg-surface);
+      border: 0.5px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-primary);
+      resize: none;
+      outline: none;
+      line-height: 1.7;
+    }
+    .md-editor:focus { border-color: var(--border-default); }
+
+    /* ── F2: Team board placeholder ── */
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .commit-card {
+      background: var(--bg-surface);
+      border: 0.5px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px;
+    }
+    .commit-hash { font-size: 9px; color: var(--accent-blue); margin-bottom: 4px; }
+    .commit-msg  { font-size: 11px; color: var(--text-primary); margin-bottom: 6px; }
+    .commit-meta { font-size: 9px; color: var(--text-muted); }
+
+    /* ── F4: Milestone progress ── */
+    .milestone-item {
+      background: var(--bg-surface);
+      border: 0.5px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin-bottom: 10px;
+    }
+    .milestone-name { font-size: 12px; color: var(--text-primary); margin-bottom: 8px; }
+    .progress-bar {
+      height: 4px;
+      background: rgba(58,127,213,.15);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+      transition: width 0.6s ease;
+    }
+    .progress-label { font-size: 9px; color: var(--text-muted); }
+
+    /* ── M: Radar / map placeholder ── */
+    .radar-tree {
+      font-size: 11px;
+      line-height: 2;
+      color: var(--text-secondary);
+    }
+    .radar-tree .domain { color: var(--accent-blue);   font-weight: 700; }
+    .radar-tree .topic  { color: var(--type-arr);      padding-left: 20px; }
+    .radar-tree .doc    { color: var(--text-muted);    padding-left: 40px; font-size: 10px; }
+    .radar-tree .doc::before { content: '📄 '; }
+
+    /* ── Keyboard toast ── */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--bg-elevated);
+      border: 0.5px solid var(--border-default);
+      border-radius: var(--radius-md);
+      padding: 8px 14px;
+      font-size: 10px;
+      color: var(--text-secondary);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 999;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ── Navigation bar ── -->
+<nav class="nav-bar" role="navigation" aria-label="HUD 模組導覽">
+  <div class="nav-logo">LLM WIKI</div>
+
+  <button class="nav-key" data-panel="f1" aria-pressed="false">
+    <span class="key-badge">F1</span>
+    <span class="key-label">個人日誌</span>
+  </button>
+  <button class="nav-key" data-panel="f2" aria-pressed="false">
+    <span class="key-badge">F2</span>
+    <span class="key-label">聯機大廳</span>
+  </button>
+  <button class="nav-key" data-panel="f3" aria-pressed="false">
+    <span class="key-badge">F3</span>
+    <span class="key-label">知識圖鑑</span>
+  </button>
+  <button class="nav-key" data-panel="f4" aria-pressed="false">
+    <span class="key-badge">F4</span>
+    <span class="key-label">專案時程活動</span>
+  </button>
+  <button class="nav-key" data-panel="b" aria-pressed="false">
+    <span class="key-badge">B</span>
+    <span class="key-label">模組背包</span>
+  </button>
+  <button class="nav-key" data-panel="m" aria-pressed="false">
+    <span class="key-badge">M</span>
+    <span class="key-label">知識雷達</span>
+  </button>
+
+  <div class="nav-spacer"></div>
+  <div class="nav-status">
+    <div class="status-dot"></div>
+    <span>系統正常</span>
+    <span style="opacity:.4">|</span>
+    <span>18 模組已載入</span>
+  </div>
+</nav>
+
+<!-- ── Main panel area ── -->
+<main class="main">
+
+  <!-- Idle / welcome -->
+  <div class="panel active" id="panel-idle" aria-label="待機畫面">
+    <div class="idle-screen">
+      <div class="idle-logo">LLM WIKI</div>
+      <div class="idle-sub">人機協作知識管理系統</div>
+      <div class="key-hints">
+        <div class="key-hint"><kbd>F1</kbd> 個人筆記</div>
+        <div class="key-hint"><kbd>F2</kbd> 團隊協作</div>
+        <div class="key-hint"><kbd>F3</kbd> 知識搜尋</div>
+        <div class="key-hint"><kbd>F4</kbd> 里程碑</div>
+        <div class="key-hint"><kbd>B</kbd>  代碼週期表</div>
+        <div class="key-hint"><kbd>M</kbd>  全域地圖</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F1: Personal notes -->
+  <div class="panel hud-panel" id="panel-f1" aria-label="個人日誌">
+    <div class="panel-header">
+      <div class="panel-title">[ F1 ] 個人日誌 — 個人筆記</div>
+      <button class="btn" onclick="saveNote()">儲存 ↗</button>
+    </div>
+    <textarea class="md-editor" id="note-editor"
+      placeholder="# 今日筆記&#10;&#10;支援 Markdown 語法。檔案自動儲存至 .system/user/notes/"
+      spellcheck="false"
+      aria-label="Markdown 筆記編輯器"></textarea>
+  </div>
+
+  <!-- F2: Team board -->
+  <div class="panel hud-panel" id="panel-f2" aria-label="協作大廳">
+    <div class="panel-header">
+      <div class="panel-title">[ F2 ] 協作大廳 — 團隊看板</div>
+      <button class="btn" onclick="fetchCommits()">重新整理 ↗</button>
+    </div>
+    <div class="team-grid" id="commit-list">
+      <div class="commit-card">
+        <div class="commit-hash">a3f9c12</div>
+        <div class="commit-msg">feat: 完成 tokenize 模組型別校驗</div>
+        <div class="commit-meta">alice · 2 小時前</div>
+      </div>
+      <div class="commit-card">
+        <div class="commit-hash">b7e2d45</div>
+        <div class="commit-msg">docs: 更新 embedVec README I/O schema</div>
+        <div class="commit-meta">bob · 5 小時前</div>
+      </div>
+      <div class="commit-card">
+        <div class="commit-hash">c1a8f90</div>
+        <div class="commit-msg">fix: ciCapture 修正 OBJ 輸入邊界條件</div>
+        <div class="commit-meta">carol · 1 天前</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- F3: Knowledge base (iframe to f3-knowledge.html) -->
+  <div class="panel hud-panel" id="panel-f3" aria-label="知識圖鑑知識庫">
+    <div class="panel-header">
+      <div class="panel-title">[ F3 ] 知識圖鑑 — 知識庫</div>
+    </div>
+    <iframe src="./f3-knowledge.html"
+      style="width:100%;height:calc(100vh - 140px);border:none;border-radius:var(--radius-md);"
+      title="F3 知識圖鑑知識庫"></iframe>
+  </div>
+
+  <!-- F4: Milestone tracker -->
+  <div class="panel hud-panel" id="panel-f4" aria-label="目標專案時程">
+    <div class="panel-header">
+      <div class="panel-title">[ F4 ] 目標專案時程 — 里程碑追蹤</div>
+    </div>
+    <div id="milestone-list">
+      <div class="milestone-item">
+        <div class="milestone-name">Phase 1 — 解析引擎 MVP</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+        <div class="progress-label">100% 完成 · 4 / 4 任務</div>
+      </div>
+      <div class="milestone-item">
+        <div class="milestone-name">Phase 2 — HUD 快捷鍵介面</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:75%"></div></div>
+        <div class="progress-label">75% 完成 · 3 / 4 任務</div>
+      </div>
+      <div class="milestone-item">
+        <div class="milestone-name">Phase 3 — B 背包週期表</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:60%"></div></div>
+        <div class="progress-label">60% 完成 · 3 / 5 任務</div>
+      </div>
+      <div class="milestone-item">
+        <div class="milestone-name">Phase 4 — 向量搜尋整合</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:20%"></div></div>
+        <div class="progress-label">20% 完成 · 1 / 5 任務</div>
+      </div>
+      <div class="milestone-item">
+        <div class="milestone-name">Phase 5 — Git API 與里程碑</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:0%"></div></div>
+        <div class="progress-label">0% 完成 · 0 / 5 任務</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B: Backpack (iframe to b-backpack.html) -->
+  <div class="panel" id="panel-b" aria-label="模組背包代碼週期表">
+    <iframe src="./b-backpack.html"
+      style="width:100%;height:calc(100vh - 80px);border:none;border-radius:var(--radius-md);"
+      title="B 模組背包 代碼 I/O 週期表"></iframe>
+  </div>
+
+  <!-- M: Global radar -->
+  <div class="panel hud-panel" id="panel-m" aria-label="知識雷達三層地圖">
+    <div class="panel-header">
+      <div class="panel-title">[ M ] 知識雷達 — 三層星域地圖</div>
+    </div>
+    <div class="radar-tree" role="tree" aria-label="知識庫三層目錄">
+      <div class="domain" role="treeitem">📂 llm-wiki</div>
+      <div class="topic"  role="treeitem">└─ architecture</div>
+      <div class="doc"    role="treeitem">system-overview.md</div>
+      <div class="doc"    role="treeitem">data-flow.md</div>
+      <div class="topic"  role="treeitem">└─ modules</div>
+      <div class="doc"    role="treeitem">tokenize.md</div>
+      <div class="doc"    role="treeitem">embedVec.md</div>
+      <div class="doc"    role="treeitem">typeCheck.md</div>
+      <div class="domain" role="treeitem">📂 api-reference</div>
+      <div class="topic"  role="treeitem">└─ endpoints</div>
+      <div class="doc"    role="treeitem">parse.md</div>
+      <div class="doc"    role="treeitem">validate.md</div>
+      <div class="topic"  role="treeitem">└─ schemas</div>
+      <div class="doc"    role="treeitem">module-schema.md</div>
+      <div class="domain" role="treeitem">📂 meetings</div>
+      <div class="topic"  role="treeitem">└─ 2025-Q2</div>
+      <div class="doc"    role="treeitem">kickoff-2025-06-01.md</div>
+      <div class="doc"    role="treeitem">sprint-review-2025-06-15.md</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Keyboard shortcut toast -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/**
+ * LLM WIKI — HUD Shell
+ * Global keyboard listener: F1~F4, B, M → panel switching
+ */
+
+const PANELS = {
+  f1: { el: document.getElementById('panel-f1'), label: 'F1 個人日誌' },
+  f2: { el: document.getElementById('panel-f2'), label: 'F2 聯機大廳'   },
+  f3: { el: document.getElementById('panel-f3'), label: 'F3 知識圖鑑'   },
+  f4: { el: document.getElementById('panel-f4'), label: 'F4 專案時程活動'   },
+  b:  { el: document.getElementById('panel-b'),  label: 'B 模組背包'    },
+  m:  { el: document.getElementById('panel-m'),  label: 'M 知識雷達'    },
+};
+
+const idlePanel = document.getElementById('panel-idle');
+let activeKey = null;
+let toastTimer = null;
+
+// ── Panel switching ───────────────────────────────────────────────────────────
+function activatePanel(key) {
+  // Toggle off if already active
+  if (activeKey === key) {
+    deactivateAll();
+    return;
+  }
+
+  deactivateAll();
+  activeKey = key;
+
+  const panel = PANELS[key];
+  panel.el.classList.add('active');
+
+  // Update nav button state
+  document.querySelectorAll('.nav-key').forEach(btn => {
+    const isActive = btn.dataset.panel === key;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  showToast(panel.label);
+}
+
+function deactivateAll() {
+  activeKey = null;
+  Object.values(PANELS).forEach(p => p.el.classList.remove('active'));
+  document.querySelectorAll('.nav-key').forEach(btn => {
+    btn.classList.remove('active');
+    btn.setAttribute('aria-pressed', 'false');
+  });
+  idlePanel.classList.add('active');
+}
+
+// Start with idle visible
+deactivateAll();
+
+// ── Global keyboard listener ──────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Ignore if typing in textarea / input
+  if (['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+
+  const map = {
+    F1: 'f1', F2: 'f2', F3: 'f3', F4: 'f4',
+    b: 'b', B: 'b',
+    m: 'm', M: 'm',
+  };
+
+  const key = map[e.key];
+  if (key) {
+    e.preventDefault();
+    activatePanel(key);
+  }
+
+  if (e.key === 'Escape') deactivateAll();
+});
+
+// ── Nav button clicks ─────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-key').forEach(btn => {
+  btn.addEventListener('click', () => activatePanel(btn.dataset.panel));
+});
+
+// ── Toast notification ────────────────────────────────────────────────────────
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = '▸ ' + msg;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+}
+
+// ── F1: Save note (stub — connect to backend /api/notes in production) ────────
+function saveNote() {
+  const content = document.getElementById('note-editor').value;
+  const filename = `note-${new Date().toISOString().slice(0,10)}.md`;
+  // In production: POST /api/notes with { filename, content }
+  console.log('[F1] save note:', filename, content.slice(0, 80));
+  showToast('筆記已儲存 → .system/user/notes/' + filename);
+}
+
+// ── F2: Fetch commits (stub — connect to Git API in production) ───────────────
+function fetchCommits() {
+  showToast('F2 拉取最新 commit...');
+  // In production: GET /api/git/commits
+}
+</script>
+</body>
+</html>

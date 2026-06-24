@@ -1,0 +1,142 @@
+/* ============================================================
+   LLM WIKI — Global Design Tokens
+   Usage: import this file in every frontend module
+   ============================================================ */
+
+/* ── Color palette ─────────────────────────────────────────── */
+:root {
+  /* Background layers */
+  --bg-page:      #04060E;
+  --bg-panel:     #080B14;
+  --bg-surface:   #0C1223;
+  --bg-elevated:  #111929;
+
+  /* Type colours (each I/O type has its own ramp) */
+  --type-str:   #3A7FD5;
+  --type-int:   #00C97A;
+  --type-float: #F5A623;
+  --type-bool:  #FF8C42;
+  --type-arr:   #A97FE8;
+  --type-obj:   #FF4D6A;
+  --type-any:   #8A9DC0;
+  --type-num:   #4ECDC4;
+
+  /* Status colours */
+  --status-done:    #00C97A;
+  --status-wip:     #A97FE8;
+  --status-blocked: #FF4D6A;
+
+  /* Accent */
+  --accent-blue:   #3A7FD5;
+  --accent-purple: #7B4FD6;
+
+  /* Text */
+  --text-primary:   #E0ECFF;
+  --text-secondary: #C8D6F0;
+  --text-muted:     #8A9DC0;
+
+  /* Border */
+  --border-subtle:  rgba(58,127,213,0.2);
+  --border-default: rgba(58,127,213,0.35);
+  --border-strong:  rgba(58,127,213,0.6);
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-ui:   'Inter', system-ui, sans-serif;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* Animation */
+  --transition-fast:   0.1s ease;
+  --transition-normal: 0.2s ease;
+}
+
+/* ── Reusable utility classes ──────────────────────────────── */
+.font-mono { font-family: var(--font-mono); }
+.font-ui   { font-family: var(--font-ui);   }
+
+.text-primary   { color: var(--text-primary);   }
+.text-secondary { color: var(--text-secondary); }
+.text-muted     { color: var(--text-muted);     }
+
+/* Status badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border: 0.5px solid;
+}
+.badge-done    { color:var(--status-done);    background:rgba(0,201,122,.08);   border-color:rgba(0,201,122,.35);   }
+.badge-wip     { color:var(--status-wip);     background:rgba(169,127,232,.08); border-color:rgba(169,127,232,.35); }
+.badge-blocked { color:var(--status-blocked); background:rgba(255,77,106,.08);  border-color:rgba(255,77,106,.35);  }
+
+/* Type chip */
+.type-chip {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  border: 0.5px solid;
+}
+.type-str   { color:var(--type-str);   background:rgba(58,127,213,.1);  border-color:rgba(58,127,213,.4);  }
+.type-int   { color:var(--type-int);   background:rgba(0,201,122,.1);   border-color:rgba(0,201,122,.4);   }
+.type-float { color:var(--type-float); background:rgba(245,166,35,.1);  border-color:rgba(245,166,35,.4);  }
+.type-bool  { color:var(--type-bool);  background:rgba(255,140,66,.1);  border-color:rgba(255,140,66,.4);  }
+.type-arr   { color:var(--type-arr);   background:rgba(169,127,232,.1); border-color:rgba(169,127,232,.4); }
+.type-obj   { color:var(--type-obj);   background:rgba(255,77,106,.1);  border-color:rgba(255,77,106,.4);  }
+.type-any   { color:var(--type-any);   background:rgba(138,157,192,.1); border-color:rgba(138,157,192,.4); }
+.type-num   { color:var(--type-num);   background:rgba(78,205,196,.1);  border-color:rgba(78,205,196,.4);  }
+
+/* HUD panel base */
+.hud-panel {
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  position: relative;
+  overflow: hidden;
+}
+.hud-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-blue), var(--accent-purple), transparent);
+}
+
+/* Action button */
+.btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: 0.5px solid var(--border-default);
+  background: rgba(58,127,213,.1);
+  color: var(--accent-blue);
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  transition: background var(--transition-fast);
+}
+.btn:hover { background: rgba(58,127,213,.2); }
+.btn-purple {
+  border-color: rgba(169,127,232,.4);
+  background:   rgba(169,127,232,.08);
+  color: var(--type-arr);
+}
+.btn-purple:hover { background: rgba(169,127,232,.18); }
