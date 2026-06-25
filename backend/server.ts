@@ -623,3 +623,272 @@ app.post('/api/tests/run', (req: Request, res: Response) => {
   // In production: spawn('npx', ['vitest', 'run', '--reporter=json', suitefile])
   res.json({ status: 'queued', message: `Test suite "${id || 'all'}" queued for execution` });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// M: WIKI ROUTES — AI 整理產出知識庫（wiki/ 目錄，獨立於 docs/）
+// ══════════════════════════════════════════════════════════════════════════════
+
+const WIKI_DIR = path.resolve(process.env['WIKI_DIR'] ?? 'wiki');
+fs.mkdir(WIKI_DIR, { recursive: true }).catch(() => {});
+
+// GET /api/wiki/tree
+app.get('/api/wiki/tree', async (_req: Request, res: Response) => {
+  try {
+    await fs.mkdir(WIKI_DIR, { recursive: true });
+    const tree = await buildTree(WIKI_DIR, '');
+    res.json({ tree });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err.message) });
+  }
+});
+
+// GET /api/wiki/file?path=<rel-path>
+app.get('/api/wiki/file', async (req: Request, res: Response) => {
+  const rel = String(req.query['path'] ?? '');
+  if (!rel || rel.includes('..')) { res.status(400).json({ error: 'Invalid path' }); return; }
+  const full = path.join(WIKI_DIR, rel);
+  if (!full.startsWith(WIKI_DIR)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  try {
+    const raw = await fs.readFile(full, 'utf-8');
+    const { data, content } = matter(raw);
+    res.json({ path: rel, frontmatter: data, content });
+  } catch {
+    res.status(404).json({ error: `Wiki file "${rel}" not found` });
+  }
+});
+
+// POST /api/wiki/save
+app.post('/api/wiki/save', async (req: Request, res: Response) => {
+  const { path: relPath, content } = (req.body ?? {}) as { path?: string; content?: string };
+  if (!relPath || relPath.includes('..')) { res.status(400).json({ error: 'Invalid path' }); return; }
+  if (typeof content !== 'string') { res.status(400).json({ error: '"content" is required' }); return; }
+  const full = path.join(WIKI_DIR, relPath);
+  if (!full.startsWith(WIKI_DIR)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  try {
+    await fs.mkdir(path.dirname(full), { recursive: true });
+    await fs.writeFile(full, content, 'utf-8');
+    res.json({ success: true, path: relPath, bytes: Buffer.byteLength(content) });
+  } catch (err: any) {
+    res.status(500).json({ error: String(err.message) });
+  }
+});
+
+// DELETE /api/wiki/file?path=<rel-path>
+app.delete('/api/wiki/file', async (req: Request, res: Response) => {
+  const rel = String(req.query['path'] ?? '');
+  if (!rel || rel.includes('..')) { res.status(400).json({ error: 'Invalid path' }); return; }
+  const full = path.join(WIKI_DIR, rel);
+  if (!full.startsWith(WIKI_DIR)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  try {
+    await fs.unlink(full);
+    const dir = path.dirname(full);
+    const remaining = await fs.readdir(dir);
+    if (!remaining.length && dir !== WIKI_DIR) await fs.rmdir(dir);
+    res.json({ success: true, path: rel });
+  } catch {
+    res.status(404).json({ error: `Wiki file "${rel}" not found` });
+  }
+});
+
+// POST /api/wiki/generate
+// Body: { instruction, history, sourcePaths?, aiConfig }
+// aiConfig: { provider, openai_key?, anthropic_key?, llama_host?, llama_port?,
+//             custom_base_url?, custom_api_key?, custom_model? }
+app.post('/api/wiki/generate', async (req: Request, res: Response) => {
+  const {
+    instruction,
+    history    = [],
+    sourcePaths = [],
+    aiConfig   = {},
+  } = (req.body ?? {}) as {
+    instruction: string;
+    history:     { role: string; content: string }[];
+    sourcePaths: string[];
+    aiConfig:    Record<string, string>;
+  };
+  if (!instruction?.trim()) { res.status(400).json({ error: '"instruction" is required' }); return; }
+
+  // ── 收集 docs/ 內容 ──────────────────────────────────────────────────────
+  let sourceContext = '';
+  if (sourcePaths.length) {
+    const contents = await Promise.all(sourcePaths.slice(0, 8).map(async (p) => {
+      try {
+        const full = path.join(DOCS_DIR, p);
+        if (!full.startsWith(DOCS_DIR)) return null;
+        const raw = await fs.readFile(full, 'utf-8');
+        return `=== 來源：docs/${p} ===\n${raw.slice(0, 2000)}`;
+      } catch { return null; }
+    }));
+    sourceContext = contents.filter(Boolean).join('\n\n');
+  } else {
+    const results: string[] = [];
+    async function collectTitles(dir: string, rel: string) {
+      if (!fss.existsSync(dir)) return;
+      for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+        if (e.name.startsWith('.')) continue;
+        const full2 = path.join(dir, e.name), r = path.join(rel, e.name);
+        if (e.isDirectory()) { await collectTitles(full2, r); continue; }
+        if (!e.name.endsWith('.md')) continue;
+        const raw2 = await fs.readFile(full2, 'utf-8');
+        const { data } = matter(raw2);
+        results.push(`- docs/${r}：${data['title'] ?? e.name.replace('.md','')}`);
+      }
+    }
+    await collectTitles(DOCS_DIR, '').catch(() => {});
+    sourceContext = results.length
+      ? `以下是 docs/ 的所有文件清單：\n${results.join('\n')}`
+      : '（docs/ 目錄目前尚無文件）';
+  }
+
+  // ── System prompt ────────────────────────────────────────────────────────
+  const systemPrompt = `你是 LLM WIKI 的知識整理助手。
+你的職責：根據使用者指令，參考 docs/（唯讀來源）的內容，整理並生成 wiki/ 目錄下的 Markdown 文件。
+
+## 重要規則
+1. docs/ 是唯讀來源，你只能讀取，不能修改。
+2. wiki/ 是你的輸出目錄，採用 Domain/Topic/doc.md 三層結構。
+3. 如果使用者指令不夠明確（缺少目標領域、文件名稱、或整理方式），你必須主動用繁體中文詢問。
+4. 產出文件時，回覆格式必須是 JSON。
+
+## 回覆格式
+需要澄清時：直接用繁體中文提問。
+可以產出時：只輸出以下 JSON（不要其他文字）：
+{
+  "files": [
+    { "path": "Domain/Topic/filename.md", "content": "---\\ntitle: ...\\n---\\n\\n# ..." }
+  ],
+  "summary": "說明這次整理了什麼"
+}`;
+
+  const userContent = `${instruction}\n\n${sourceContext ? `\n## 參考來源\n${sourceContext}` : ''}`;
+
+  // ── 依 ai_provider 選擇接口 ──────────────────────────────────────────────
+  const provider = (aiConfig['ai_provider'] ?? process.env['AI_PROVIDER'] ?? 'anthropic').toLowerCase();
+
+  let aiText = '';
+
+  try {
+    if (provider === 'llama') {
+      // ── llama.cpp (OpenAI-compatible /v1/chat/completions) ────────────────
+      const host  = (aiConfig['llama_host'] ?? 'http://127.0.0.1').replace(/\/$/, '');
+      const port  = aiConfig['llama_port'] ?? '8080';
+      const url   = `${host}:${port}/v1/chat/completions`;
+
+      const msgs = [
+        { role: 'system',    content: systemPrompt },
+        ...history.map(h => ({ role: h.role, content: h.content })),
+        { role: 'user',      content: userContent },
+      ];
+
+      const llamaRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: msgs, max_tokens: 4096, temperature: 0.3, stream: false }),
+      });
+
+      if (!llamaRes.ok) {
+        const e = await llamaRes.text();
+        res.status(502).json({ error: `llama.cpp API 錯誤（${url}）：${e}` }); return;
+      }
+
+      const llamaData = await llamaRes.json() as any;
+      aiText = llamaData?.choices?.[0]?.message?.content ?? '';
+
+    } else if (provider === 'openai') {
+      // ── OpenAI /v1/chat/completions ───────────────────────────────────────
+      const apiKey = aiConfig['openai_key'] ?? process.env['OPENAI_API_KEY'] ?? '';
+      if (!apiKey) { res.status(503).json({ error: '請在設定頁填入 OpenAI API Key' }); return; }
+
+      const msgs = [
+        { role: 'system',    content: systemPrompt },
+        ...history.map(h => ({ role: h.role, content: h.content })),
+        { role: 'user',      content: userContent },
+      ];
+
+      const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o', messages: msgs, max_tokens: 4096, temperature: 0.3 }),
+      });
+
+      if (!oaiRes.ok) {
+        const e = await oaiRes.text();
+        res.status(502).json({ error: `OpenAI API 錯誤：${e}` }); return;
+      }
+
+      const oaiData = await oaiRes.json() as any;
+      aiText = oaiData?.choices?.[0]?.message?.content ?? '';
+
+    } else if (provider === 'custom') {
+      // ── 自訂 OpenAI-compatible API ────────────────────────────────────────
+      const baseUrl = (aiConfig['custom_base_url'] ?? '').replace(/\/$/, '');
+      const apiKey  = aiConfig['custom_api_key'] ?? '';
+      const model   = aiConfig['custom_model'] ?? 'local-model';
+      if (!baseUrl) { res.status(503).json({ error: '請在設定頁填入自訂 API 的 Base URL' }); return; }
+
+      const msgs = [
+        { role: 'system',    content: systemPrompt },
+        ...history.map(h => ({ role: h.role, content: h.content })),
+        { role: 'user',      content: userContent },
+      ];
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+      const custRes = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model, messages: msgs, max_tokens: 4096, temperature: 0.3 }),
+      });
+
+      if (!custRes.ok) {
+        const e = await custRes.text();
+        res.status(502).json({ error: `自訂 API 錯誤（${baseUrl}）：${e}` }); return;
+      }
+
+      const custData = await custRes.json() as any;
+      aiText = custData?.choices?.[0]?.message?.content ?? '';
+
+    } else {
+      // ── Anthropic（預設）────────────────────────────────────────────────
+      const apiKey = aiConfig['anthropic_key'] ?? process.env['ANTHROPIC_API_KEY'] ?? '';
+      if (!apiKey) { res.status(503).json({ error: '請在設定頁填入 Anthropic API Key，或在 .env 設定 ANTHROPIC_API_KEY' }); return; }
+
+      const msgs = [
+        ...history.map(h => ({ role: h.role, content: h.content })),
+        { role: 'user', content: userContent },
+      ];
+
+      const anthRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4096, system: systemPrompt, messages: msgs }),
+      });
+
+      if (!anthRes.ok) {
+        const e = await anthRes.text();
+        res.status(502).json({ error: `Anthropic API 錯誤：${e}` }); return;
+      }
+
+      const anthData = await anthRes.json() as any;
+      aiText = (anthData.content ?? []).find((b: any) => b.type === 'text')?.text ?? '';
+    }
+
+    // ── 解析回應 ────────────────────────────────────────────────────────────
+    const jsonMatch = aiText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.files) {
+          res.json({ type: 'files', files: parsed.files, summary: parsed.summary ?? '' });
+          return;
+        }
+      } catch {}
+    }
+
+    res.json({ type: 'question', message: aiText || '（AI 沒有回應，請確認服務正常運作）' });
+
+  } catch (err: any) {
+    res.status(500).json({ error: String(err.message) });
+  }
+});
