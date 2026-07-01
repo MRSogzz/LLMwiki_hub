@@ -1,16 +1,23 @@
 /**
- * LLM WIKI — Dynamic Type Checker
+ * LLM WIKI — Dynamic Type Checker  (v2)
  * ─────────────────────────────────────────────────────────────────────────────
- * 職責：校驗兩個代碼模組串接時的 I/O 型別相容性。
- *       當 Module_A.OUTPUT.type 與 Module_B.INPUT.type 不相容時，
- *       拋出 TypeMismatchException，前端接收後顯示紅色預警。
+ * 修正漏洞：isTypeCompatible 現在遞迴校驗完整 IOSchema，
+ * 包含 items（ARR 元素型別）與 properties（OBJ 欄位型別）。
  *
- * 核心公式：
- *   Module_A.OUTPUT.Schema 必須與 Module_B.INPUT.Schema 100% 相容
+ * 相容性規則（三層）：
+ *   Layer 1 — 頂層 type 必須相容（ANY 萬用、NUM ⊇ INT∪FLOAT）
+ *   Layer 2 — ARR：若雙方都有 items，items.type 也必須遞迴相容
+ *   Layer 3 — OBJ：若 B 聲明 required 欄位，A 的 properties 必須全數包含且型別相容
+ *             若 B 無 required（或無 properties），視為 OBJ 泛型相容
+ *
+ * 設計決策：
+ *   - 「Output 比 Input 多欄位」允許（寬鬆方向，實務上常見）
+ *   - 「Output 缺少 Input required 欄位」拒絕（TypeMismatchException）
+ *   - items 缺失一方視為 ARR<ANY>，相容
  */
 
 import fss from 'fs';
-import type { IOType, ModuleMeta } from '../parser/metadata-parser.js';
+import type { IOType, IOSchema, ModuleMeta } from '../parser/metadata-parser.js';
 
 // ── Custom Exception ──────────────────────────────────────────────────────────
 
@@ -19,29 +26,30 @@ export class TypeMismatchException extends Error {
   public readonly moduleB:    string;
   public readonly outputType: IOType;
   public readonly inputType:  IOType;
+  public readonly reason:     string;   // ← 新增：說明哪一層不相容
 
-  constructor(moduleA: string, moduleB: string, outputType: IOType, inputType: IOType) {
+  constructor(
+    moduleA:    string,
+    moduleB:    string,
+    outputType: IOType,
+    inputType:  IOType,
+    reason      = '',
+  ) {
     super(
       `TypeMismatchException: Cannot connect ${moduleA}() → ${moduleB}(). ` +
-      `Output [${outputType}] is incompatible with input [${inputType}].`
+      `Output [${outputType}] is incompatible with input [${inputType}].` +
+      (reason ? ` (${reason})` : ''),
     );
     this.name       = 'TypeMismatchException';
     this.moduleA    = moduleA;
     this.moduleB    = moduleB;
     this.outputType = outputType;
     this.inputType  = inputType;
+    this.reason     = reason;
   }
 }
 
-// ── Compatibility Matrix ──────────────────────────────────────────────────────
-//
-// compatibilityMatrix[OUTPUT_TYPE][INPUT_TYPE] = compatible?
-//
-// Rules:
-//   - Same type → always compatible.
-//   - ANY (either side) → always compatible.
-//   - NUM is a superset of INT and FLOAT.
-//   - All other cross-type connections are STRICT (false).
+// ── Layer 1: Top-level IOType compatibility matrix ────────────────────────────
 
 const compatibilityMatrix: Record<IOType, Partial<Record<IOType, boolean>>> = {
   STR:   { STR: true,                                       ANY: true },
@@ -55,11 +63,107 @@ const compatibilityMatrix: Record<IOType, Partial<Record<IOType, boolean>>> = {
            ARR: true,  OBJ: true, NUM: true,   ANY: true            },
 };
 
-// ── Core compatibility check ──────────────────────────────────────────────────
+function topLevelCompatible(out: IOType, inp: IOType): boolean {
+  if (out === 'ANY' || inp === 'ANY') return true;
+  return compatibilityMatrix[out]?.[inp] === true;
+}
 
-export function isTypeCompatible(outputType: IOType, inputType: IOType): boolean {
-  if (outputType === 'ANY' || inputType === 'ANY') return true;
-  return compatibilityMatrix[outputType]?.[inputType] === true;
+// ── Layer 2 & 3: Recursive schema compatibility ───────────────────────────────
+
+/**
+ * 完整 IOSchema 相容性校驗，回傳 { ok, reason }
+ * ok     = true  → 相容
+ * reason = string → 不相容的具體原因（供前端顯示）
+ */
+export function schemaCompatible(
+  out: IOSchema,
+  inp: IOSchema,
+): { ok: boolean; reason: string } {
+
+  const outType = out.type;
+  const inpType = inp.type;
+
+  // ── Layer 1: 頂層 type ───────────────────────────────────────────────────
+  if (!topLevelCompatible(outType, inpType)) {
+    return {
+      ok:     false,
+      reason: `頂層型別不符：output [${outType}] → input [${inpType}]`,
+    };
+  }
+
+  // ── Layer 2: ARR 元素型別 ────────────────────────────────────────────────
+  // 若雙方頂層都是 ARR（或相容 ARR 的 ANY），才進入 items 校驗
+  const bothArr = (outType === 'ARR' || outType === 'ANY') &&
+                  (inpType === 'ARR' || inpType === 'ANY') &&
+                  outType === 'ARR' && inpType === 'ARR';
+
+  if (bothArr && out.items && inp.items) {
+    // items.type 是 JSON Schema 原始字串（"string"/"number"/"object"...）
+    // 需要對應到 IOType
+    const outItem = jsonSchemaTypeToIOType(out.items.type);
+    const inpItem = jsonSchemaTypeToIOType(inp.items.type);
+    if (!topLevelCompatible(outItem, inpItem)) {
+      return {
+        ok:     false,
+        reason: `ARR 元素型別不符：items [${outItem}] → items [${inpItem}]`,
+      };
+    }
+  }
+  // 一方有 items 另一方沒有 → 視為 ARR<ANY>，允許
+
+  // ── Layer 3: OBJ 欄位結構 ────────────────────────────────────────────────
+  const bothObj = outType === 'OBJ' && inpType === 'OBJ';
+
+  if (bothObj && inp.required?.length && inp.properties) {
+    // B 聲明了 required 欄位 → A 的 properties 必須全數包含且型別相容
+    const outProps = out.properties ?? {};
+
+    for (const field of inp.required) {
+      const inpField = inp.properties[field];
+      const outField = outProps[field];
+
+      if (!outField) {
+        return {
+          ok:     false,
+          reason: `OBJ 缺少必要欄位：output 沒有 "${field}"（input required）`,
+        };
+      }
+
+      const outFT = jsonSchemaTypeToIOType(outField.type);
+      const inpFT = jsonSchemaTypeToIOType(inpField!.type);
+
+      if (!topLevelCompatible(outFT, inpFT)) {
+        return {
+          ok:     false,
+          reason: `OBJ 欄位型別不符："${field}" output [${outFT}] → input [${inpFT}]`,
+        };
+      }
+    }
+  }
+  // inp 無 required / 無 properties → OBJ 泛型相容，允許
+
+  return { ok: true, reason: '' };
+}
+
+// ── JSON Schema type string → IOType ─────────────────────────────────────────
+// 處理 items.type 和 properties[x].type 的原始 JSON Schema 字串
+
+export function jsonSchemaTypeToIOType(t: string | undefined): IOType {
+  switch ((t ?? '').toLowerCase()) {
+    case 'string':  return 'STR';
+    case 'integer': return 'INT';
+    case 'number':  return 'NUM';
+    case 'float':   return 'FLOAT';
+    case 'boolean': return 'BOOL';
+    case 'array':   return 'ARR';
+    case 'object':  return 'OBJ';
+    default:        return 'ANY';   // 未知 → 最寬鬆
+  }
+}
+
+// ── Convenience: 只回傳 boolean（向下相容舊呼叫）────────────────────────────
+export function isTypeCompatible(out: IOType, inp: IOType): boolean {
+  return topLevelCompatible(out, inp);
 }
 
 // ── Adapter suggestion ────────────────────────────────────────────────────────
@@ -89,6 +193,7 @@ export interface ConnectionResult {
   compatible:         boolean;
   outputType:         IOType;
   inputType:          IOType;
+  reason:             string;   // 不相容原因（相容時為空字串）
   message:            string;
   adapterSuggestion?: string;
 }
@@ -98,21 +203,24 @@ export function validateConnection(
   moduleB: ModuleMeta,
   strict  = false,
 ): ConnectionResult {
-  const outputType = moduleA.output.type as IOType;
-  const inputType  = moduleB.input.type  as IOType;
-  const compatible = isTypeCompatible(outputType, inputType);
+  const outputType = moduleA.output.type;
+  const inputType  = moduleB.input.type;
+
+  // ← 改用 schemaCompatible，傳入完整 IOSchema
+  const { ok: compatible, reason } = schemaCompatible(moduleA.output, moduleB.input);
 
   if (!compatible && strict) {
-    throw new TypeMismatchException(moduleA.name, moduleB.name, outputType, inputType);
+    throw new TypeMismatchException(moduleA.name, moduleB.name, outputType, inputType, reason);
   }
 
   return {
     compatible,
     outputType,
     inputType,
+    reason,
     message: compatible
       ? `✓ ${moduleA.name}() [${outputType}] → ${moduleB.name}() [${inputType}] — Compatible`
-      : `✗ TypeMismatch: ${moduleA.name}() outputs [${outputType}] but ${moduleB.name}() requires [${inputType}]`,
+      : `✗ TypeMismatch: ${moduleA.name}() → ${moduleB.name}() — ${reason}`,
     adapterSuggestion: compatible ? undefined : suggestAdapter(outputType, inputType),
   };
 }
@@ -120,9 +228,9 @@ export function validateConnection(
 // ── Pipeline validator ────────────────────────────────────────────────────────
 
 export interface PipelineValidationResult {
-  valid:        boolean;
-  steps:        ConnectionResult[];
-  firstError?:  ConnectionResult;
+  valid:       boolean;
+  steps:       ConnectionResult[];
+  firstError?: ConnectionResult;
 }
 
 export function validatePipeline(modules: ModuleMeta[]): PipelineValidationResult {
@@ -137,36 +245,39 @@ export function validatePipeline(modules: ModuleMeta[]): PipelineValidationResul
   return { valid: !firstError, steps, firstError };
 }
 
-// ── CLI demo (ESM-compatible) ─────────────────────────────────────────────────
+// ── CLI demo ──────────────────────────────────────────────────────────────────
 
 const isMain = process.argv[1] && fss.realpathSync(process.argv[1]).includes('type-checker');
 if (isMain) {
-  // Demo: valid pipeline STR → ARR → ARR → FLOAT → ARR
-  type DemoModule = { name: string; input: { type: IOType }; output: { type: IOType } };
-  const demo: DemoModule[] = [
-    { name: 'tokenize',  input: { type: 'STR'   }, output: { type: 'ARR'   } },
-    { name: 'embedVec',  input: { type: 'ARR'   }, output: { type: 'ARR'   } },
-    { name: 'cosSim',    input: { type: 'ARR'   }, output: { type: 'FLOAT' } },
-    { name: 'rankDocs',  input: { type: 'FLOAT' }, output: { type: 'ARR'   } },
-  ];
+  type Demo = Pick<ModuleMeta, 'name' | 'input' | 'output'>;
 
-  console.log('\n── Valid Pipeline Demo ──');
-  for (let i = 0; i < demo.length - 1; i++) {
-    const r = validateConnection(demo[i]! as unknown as ModuleMeta, demo[i+1]! as unknown as ModuleMeta);
+  console.log('\n── Layer 1: 頂層型別校驗 ──');
+  const demo1: Demo[] = [
+    { name: 'tokenize', input: { type: 'STR' }, output: { type: 'ARR' } },
+    { name: 'embedVec', input: { type: 'ARR' }, output: { type: 'ARR' } },
+    { name: 'cosSim',   input: { type: 'ARR' }, output: { type: 'FLOAT' } },
+  ];
+  for (let i = 0; i < demo1.length - 1; i++) {
+    const r = validateConnection(demo1[i] as ModuleMeta, demo1[i+1] as ModuleMeta);
     console.log(r.message);
   }
 
-  console.log('\n── Mismatch Demo ──');
-  try {
-    validateConnection(
-      { name: 'renderMD', output: { type: 'STR' } } as unknown as ModuleMeta,
-      { name: 'cosSim',   input:  { type: 'ARR' } } as unknown as ModuleMeta,
-      true,
-    );
-  } catch (e) {
-    if (e instanceof TypeMismatchException) {
-      console.error(e.message);
-      console.log('Adapter:', suggestAdapter(e.outputType, e.inputType));
-    }
-  }
+  console.log('\n── Layer 2: ARR items 校驗 ──');
+  const arrStrOut: Demo = { name: 'A', input: { type: 'ARR' }, output: { type: 'ARR', items: { type: 'string' } } };
+  const arrObjIn:  Demo = { name: 'B', input: { type: 'ARR', items: { type: 'object' } }, output: { type: 'ARR' } };
+  const r2 = validateConnection(arrStrOut as ModuleMeta, arrObjIn as ModuleMeta);
+  console.log(r2.message, r2.reason ? `→ ${r2.reason}` : '');
+
+  console.log('\n── Layer 3: OBJ properties 校驗 ──');
+  const objOut: Demo = {
+    name: 'C', input: { type: 'OBJ' },
+    output: { type: 'OBJ', properties: { name: { type: 'string' }, score: { type: 'number' } } },
+  };
+  const objIn: Demo = {
+    name: 'D',
+    input: { type: 'OBJ', properties: { name: { type: 'string' }, id: { type: 'integer' } }, required: ['name','id'] },
+    output: { type: 'OBJ' },
+  };
+  const r3 = validateConnection(objOut as ModuleMeta, objIn as ModuleMeta);
+  console.log(r3.message, r3.reason ? `→ ${r3.reason}` : '');
 }

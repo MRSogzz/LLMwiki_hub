@@ -16,6 +16,7 @@ const DEFAULT_CFG = {
   // llama.cpp
   llama_host:       'http://127.0.0.1',
   llama_port:       '8080',
+  hermes_base_url:  'http://127.0.0.1:8642',
   llama_model_path: '',
   llama_ctx_size:   '4096',
   llama_threads:    '4',
@@ -50,6 +51,21 @@ try { return { ...DEFAULT_CFG, ...JSON.parse(localStorage.getItem(CFG_KEY) || '{
   catch { return { ...DEFAULT_CFG }; }
 }
 
+
+function saveHudToken() {
+  const input = document.getElementById('hud-token-input');
+  if (!input) return;
+  const token = input.value.trim();
+  setHudToken(token);
+  const status = document.getElementById('token-status');
+  if (status) {
+    status.textContent = token
+      ? '✓ Token 已儲存（' + token.slice(0,8) + '…）'
+      : '⚠ Token 已清除';
+    status.style.color = token ? '#4ade80' : '#f87171';
+  }
+  toast(token ? '✓ HUD Token 已儲存' : 'Token 已清除');
+}
 function saveCfgLocal(cfg) {
   localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
 }
@@ -137,6 +153,7 @@ function renderCfgSection(id) {
         <option value="openai"    ${p==='openai'?'selected':''}>OpenAI (GPT-4o 等)</option>
         <option value="anthropic" ${p==='anthropic'?'selected':''}>Anthropic (Claude)</option>
         <option value="llama"     ${p==='llama'?'selected':''}>llama.cpp（本地）</option>
+        <option value="hermes"    ${p==='hermes'?'selected':''}>🤖 Hermes Agent（多步驟自主整理）</option>
         <option value="custom"    ${p==='custom'?'selected':''}>自訂 API（OpenAI 相容）</option>
       `)}
       ${p==='openai' ? `
@@ -158,6 +175,15 @@ function renderCfgSection(id) {
         `)}
       ` : ''}
       ${p==='llama' ? `${cfgHint('⚠ llama.cpp 設定請至「llama.cpp」分頁設置')}` : ''}
+      ${p==='hermes' ? `
+        ${cfgHint('🤖 Hermes Agent（Nous Research）是獨立的 agent 執行框架，本地跑 Gemma 模型。<br>與其他模式不同：Hermes 會自主規劃多步驟（搜尋 docs → 閱讀 → 整理 → 寫入 wiki），<br>而非一次性問答。')}
+        ${cfgField('hermes_base_url','Hermes API Server URL','text','placeholder="http://127.0.0.1:8642"')}
+        ${cfgHint('API Key 需在後端 .env 設定 <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px">HERMES_API_KEY</code>（對應 Hermes 的 API_SERVER_KEY，可在 <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px">~/.hermes/.env</code> 查看）。')}
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:5px;letter-spacing:.06em">可用工具集</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.45);padding:8px 12px;background:rgba(0,0,0,0.3);border-radius:6px;margin-bottom:14px;font-family:'JetBrains Mono',monospace;line-height:1.8">
+          search_docs · read_doc · list_wiki · write_wiki · finish
+        </div>
+      ` : ''}
       ${p==='custom' ? `
         ${cfgHint('自訂 API 必須相容 OpenAI /v1/chat/completions 格式（如 LM Studio、Ollama 等）')}
         ${cfgField('custom_base_url','Base URL','text','placeholder="http://localhost:1234/v1"')}
@@ -209,6 +235,26 @@ function renderCfgSection(id) {
         點擊「測試連線」確認後端狀態
       </div>
       ${cfgHint('啟動指令：<code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:3px">npm run dev</code>')}
+
+      ${cfgTitle('🔑 HUD Token（寫入驗證）')}
+      ${cfgHint('後端啟動時會在 terminal 印出 HUD_TOKEN，將其貼入下方。<br>或在 .env 設定 <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px">HUD_TOKEN=your_token</code> 以持久化。')}
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+        <input type="password" id="hud-token-input"
+          style="flex:1;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);
+                 border-radius:6px;padding:7px 12px;font-family:'JetBrains Mono',monospace;
+                 font-size:11px;color:#f0ead8;outline:none"
+          placeholder="貼上後端 terminal 顯示的 token…"
+          value="${getHudToken()}" />
+        <button onclick="saveHudToken()"
+          style="padding:7px 14px;border-radius:6px;border:1px solid rgba(78,205,196,0.4);
+                 background:rgba(78,205,196,0.1);color:#4ECDC4;font-family:'JetBrains Mono',monospace;
+                 font-size:10px;cursor:pointer;white-space:nowrap">
+          儲存 Token
+        </button>
+      </div>
+      <div id="token-status" style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:8px">
+        ${getHudToken() ? '✓ Token 已設定（' + getHudToken().slice(0,8) + '…）' : '⚠ 尚未設定 Token，寫入操作將被後端拒絕'}
+      </div>
     `,
 
     hud: () => `

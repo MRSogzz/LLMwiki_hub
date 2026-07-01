@@ -22,7 +22,33 @@ import { validateConnection, validatePipeline, TypeMismatchException } from './t
 import { writebackResult, CIResult } from './ci-watcher/ci-watcher.js';
 
 const app  = express();
-const PORT = Number(process.env.PORT ?? 3001);
+import crypto from 'crypto';
+
+const PORT      = Number(process.env['PORT'] ?? 3001);
+const BIND_HOST = process.env['BIND_HOST'] ?? '127.0.0.1';   // 預設只允許本機
+
+// ── HUD Token（防止區網未授權存取）─────────────────────────────────────────
+// 優先讀 .env 的 HUD_TOKEN；若未設定，啟動時自動產生並印到 terminal。
+// 前端從 localStorage 讀取 token，每次 mutation 請求帶 x-hud-token header。
+const HUD_TOKEN: string = (() => {
+  const envToken = process.env['HUD_TOKEN'];
+  if (envToken?.trim()) return envToken.trim();
+  const generated = crypto.randomBytes(24).toString('hex');
+  console.warn('\n[Security] HUD_TOKEN 未設定，本次啟動使用暫時 token：');
+  console.warn(`[Security]   HUD_TOKEN=${generated}`);
+  console.warn('[Security] 建議將上方 token 加入 .env 以持久化。\n');
+  return generated;
+})();
+
+/** 驗證 x-hud-token header（用於所有寫入 / 刪除路由）*/
+function requireToken(req: Request, res: Response, next: NextFunction): void {
+  const token = req.headers['x-hud-token'];
+  if (!token || token !== HUD_TOKEN) {
+    res.status(401).json({ error: 'Unauthorized: missing or invalid x-hud-token' });
+    return;
+  }
+  next();
+}
 
 // ── Security headers (inline, no helmet dep) ──────────────────────────────────
 
@@ -36,9 +62,20 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 
 // ── Core middleware ───────────────────────────────────────────────────────────
 
+// CORS：預設只允許本機來源；可透過 CORS_ORIGIN 環境變數覆寫（多個以逗號分隔）
+const allowedOrigins = (process.env['CORS_ORIGIN'] ?? 'http://localhost,http://127.0.0.1')
+  .split(',').map(o => o.trim()).filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN ?? '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
+  origin: (origin, cb) => {
+    // origin 為 undefined 表示同源請求（curl / Electron 本機開啟）
+    if (!origin) return cb(null, true);
+    const ok = allowedOrigins.some(allowed =>
+      origin === allowed || origin.startsWith(allowed + ':')
+    );
+    cb(ok ? null : new Error(`CORS: origin "${origin}" not allowed`), ok);
+  },
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-ci-secret'],
 }));
 app.use(express.json());
@@ -200,7 +237,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 async function bootstrap(): Promise<void> {
   await startParser();
-  app.listen(PORT, () => {
+  app.listen(PORT, BIND_HOST, () => {
     console.log(`\n[LLM WIKI] API server ready → http://localhost:${PORT}`);
     console.log(`[LLM WIKI] Health: GET http://localhost:${PORT}/api/health`);
     console.log(`[LLM WIKI] Modules: GET http://localhost:${PORT}/api/modules\n`);
@@ -266,8 +303,8 @@ app.get('/api/notes/:filename', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/notes/:filename — create or update note
-app.post('/api/notes/:filename', async (req: Request, res: Response) => {
+// POST /api/notes/:filename — create or update note [AUTH]
+app.post('/api/notes/:filename', requireToken, async (req: Request, res: Response) => {
   const filename = path.basename(req.params['filename'] ?? '');
   if (!filename.endsWith('.md')) { res.status(400).json({ error: 'Only .md files allowed' }); return; }
   const { content } = (req.body ?? {}) as { content?: string };
@@ -281,8 +318,8 @@ app.post('/api/notes/:filename', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/notes/:filename
-app.delete('/api/notes/:filename', async (req: Request, res: Response) => {
+// DELETE /api/notes/:filename [AUTH]
+app.delete('/api/notes/:filename', requireToken, async (req: Request, res: Response) => {
   const filename = path.basename(req.params['filename'] ?? '');
   if (!filename.endsWith('.md')) { res.status(400).json({ error: 'Only .md files allowed' }); return; }
   try {
@@ -631,6 +668,250 @@ app.post('/api/tests/run', (req: Request, res: Response) => {
 const WIKI_DIR = path.resolve(process.env['WIKI_DIR'] ?? 'wiki');
 fs.mkdir(WIKI_DIR, { recursive: true }).catch(() => {});
 
+// ── Hermes Agent 整合 ───────────────────────────────────────────────────────
+// Hermes Agent（Nous Research）是獨立的 agent 執行框架，提供 OpenAI 相容的
+// /v1/chat/completions，支援標準 tool_calls 格式。
+// 這裡定義 wiki 整理任務可用的工具集，由 Hermes 自主規劃呼叫順序。
+
+const HERMES_BASE_URL = (process.env['HERMES_BASE_URL'] ?? 'http://127.0.0.1:8642').replace(/\/$/, '');
+const HERMES_MAX_TURNS = 8; // agent 迴圈上限，避免無限呼叫
+
+// Hermes 可用工具定義（OpenAI tools schema）
+const HERMES_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'search_docs',
+      description: '在 docs/（唯讀來源）全文搜尋關鍵字，回傳相關文件路徑與標題',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: '搜尋關鍵字' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_doc',
+      description: '讀取 docs/ 底下單一文件的完整內容',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string', description: '相對於 docs/ 的路徑，例如 "TypeScript/basics.md"' } },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_wiki',
+      description: '列出 wiki/ 目錄下現有文件，避免重複建立',
+      parameters: {
+        type: 'object',
+        properties: { domain: { type: 'string', description: '（可選）只列出某個 Domain 子目錄' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_wiki',
+      description: '寫入一個 wiki/ 文件到暫存區（不會立即落地，需使用者最後確認）',
+      parameters: {
+        type: 'object',
+        properties: {
+          path:    { type: 'string', description: '相對於 wiki/ 的路徑，格式 Domain/Topic/filename.md' },
+          content: { type: 'string', description: '完整 Markdown 內容（含 frontmatter）' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'finish',
+      description: '結束本輪任務，回報已完成的整理摘要',
+      parameters: {
+        type: 'object',
+        properties: { summary: { type: 'string', description: '簡短說明這次整理了什麼' } },
+        required: ['summary'],
+      },
+    },
+  },
+] as const;
+
+interface HermesAgentResult {
+  type:    'files' | 'question' | 'error';
+  files?:  { path: string; content: string }[];
+  message?: string;
+  summary?: string;
+}
+
+/** 執行 Hermes Agent 的工具呼叫，回傳工具結果文字 */
+async function executeHermesTool(name: string, args: any, stagedFiles: { path: string; content: string }[]): Promise<string> {
+  switch (name) {
+    case 'search_docs': {
+      const q = String(args?.query ?? '').toLowerCase();
+      const results: string[] = [];
+      async function walk(dir: string, rel: string) {
+        if (!fss.existsSync(dir)) return;
+        for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+          if (e.name.startsWith('.')) continue;
+          const full = path.join(dir, e.name), r = path.join(rel, e.name);
+          if (e.isDirectory()) { await walk(full, r); continue; }
+          if (!e.name.endsWith('.md')) continue;
+          const raw = await fs.readFile(full, 'utf-8');
+          const { data, content: body } = matter(raw);
+          const hay = `${data['title'] ?? ''} ${body}`.toLowerCase();
+          if (hay.includes(q)) results.push(`- docs/${r}：${data['title'] ?? e.name}`);
+        }
+      }
+      await walk(DOCS_DIR, '').catch(() => {});
+      return results.length ? results.slice(0, 20).join('\n') : '（無符合結果）';
+    }
+    case 'read_doc': {
+      const rel = String(args?.path ?? '');
+      if (!rel || rel.includes('..')) return '錯誤：無效路徑';
+      const full = path.join(DOCS_DIR, rel);
+      if (!full.startsWith(DOCS_DIR)) return '錯誤：路徑超出 docs/ 範圍';
+      try {
+        const raw = await fs.readFile(full, 'utf-8');
+        return raw.slice(0, 4000);
+      } catch { return `錯誤：找不到 docs/${rel}`; }
+    }
+    case 'list_wiki': {
+      const domain = args?.domain ? String(args.domain) : '';
+      const results: string[] = [];
+      async function walk(dir: string, rel: string) {
+        if (!fss.existsSync(dir)) return;
+        for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+          if (e.name.startsWith('.')) continue;
+          const full = path.join(dir, e.name), r = path.join(rel, e.name);
+          if (e.isDirectory()) { await walk(full, r); continue; }
+          if (e.name.endsWith('.md')) results.push(`wiki/${r}`);
+        }
+      }
+      const base = domain ? path.join(WIKI_DIR, domain) : WIKI_DIR;
+      await walk(base, domain).catch(() => {});
+      return results.length ? results.join('\n') : '（wiki/ 目前無文件）';
+    }
+    case 'write_wiki': {
+      const p = String(args?.path ?? '');
+      const c = String(args?.content ?? '');
+      if (!p || p.includes('..')) return '錯誤：無效路徑';
+      if (!c.trim()) return '錯誤：content 不可為空';
+      stagedFiles.push({ path: p, content: c });
+      return `已暫存：wiki/${p}（尚未寫入磁碟，等待使用者確認）`;
+    }
+    case 'finish': {
+      return String(args?.summary ?? '完成');
+    }
+    default:
+      return `錯誤：未知工具 "${name}"`;
+  }
+}
+
+/** Hermes Agent 多輪 tool-calling 迴圈 */
+async function runHermesAgent(
+  systemPrompt: string,
+  history: { role: string; content: string }[],
+  userContent: string,
+  baseUrlOverride?: string,
+): Promise<HermesAgentResult> {
+  const hermesKey = process.env['HERMES_API_KEY'] ?? '';
+  if (!hermesKey) {
+    return { type: 'error', message: '請在 .env 設定 HERMES_API_KEY（查看 ~/.hermes/.env 的 API_SERVER_KEY）' };
+  }
+  const baseUrl = (baseUrlOverride || HERMES_BASE_URL).replace(/\/$/, '');
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt + '\n\n你可以使用提供的工具（search_docs / read_doc / list_wiki / write_wiki / finish）來完成任務。請先搜尋並閱讀相關來源，整理後用 write_wiki 寫入，最後務必呼叫 finish 結束。' },
+    ...history.map(h => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userContent },
+  ];
+
+  const stagedFiles: { path: string; content: string }[] = [];
+  let finalSummary = '';
+  let askedQuestion = '';
+
+  for (let turn = 0; turn < HERMES_MAX_TURNS; turn++) {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${hermesKey}`,
+      },
+      body: JSON.stringify({
+        model: 'hermes-agent',
+        messages,
+        tools: HERMES_TOOLS,
+        max_tokens: 4096,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!res.ok) {
+      const e = await res.text();
+      return { type: 'error', message: `Hermes API 錯誤（${baseUrl}）：${e}` };
+    }
+
+    const data = await res.json() as any;
+    const choice = data?.choices?.[0];
+    const msg    = choice?.message;
+    if (!msg) return { type: 'error', message: 'Hermes 回應格式異常（無 message）' };
+
+    messages.push(msg);
+
+    const toolCalls = msg.tool_calls as any[] | undefined;
+
+    if (!toolCalls || !toolCalls.length) {
+      // 沒有工具呼叫 → Hermes 直接回文字，視為提問或結論
+      const text = msg.content ?? '';
+      if (stagedFiles.length) {
+        return { type: 'files', files: stagedFiles, summary: finalSummary || text || '已完成整理' };
+      }
+      askedQuestion = text;
+      break;
+    }
+
+    // 執行所有工具呼叫，結果塞回對話
+    for (const call of toolCalls) {
+      const fnName = call.function?.name ?? '';
+      let args: any = {};
+      try { args = JSON.parse(call.function?.arguments ?? '{}'); } catch {}
+
+      if (fnName === 'finish') {
+        finalSummary = String(args?.summary ?? '完成');
+      }
+
+      const result = await executeHermesTool(fnName, args, stagedFiles);
+      messages.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: result,
+      });
+    }
+
+    // finish 被呼叫 → 結束迴圈
+    if (toolCalls.some(c => c.function?.name === 'finish')) {
+      if (stagedFiles.length) {
+        return { type: 'files', files: stagedFiles, summary: finalSummary };
+      }
+      // 沒有產出任何文件就 finish → 視為訊息回覆
+      askedQuestion = finalSummary || '（Hermes 未產出任何文件）';
+      break;
+    }
+  }
+
+  if (stagedFiles.length) {
+    return { type: 'files', files: stagedFiles, summary: finalSummary || '已完成整理（達到迴圈上限）' };
+  }
+
+  return { type: 'question', message: askedQuestion || '（Hermes 未在限制輪數內完成任務，請簡化指令再試）' };
+}
+
 // GET /api/wiki/tree
 app.get('/api/wiki/tree', async (_req: Request, res: Response) => {
   try {
@@ -657,8 +938,8 @@ app.get('/api/wiki/file', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/wiki/save
-app.post('/api/wiki/save', async (req: Request, res: Response) => {
+// POST /api/wiki/save [AUTH]
+app.post('/api/wiki/save', requireToken, async (req: Request, res: Response) => {
   const { path: relPath, content } = (req.body ?? {}) as { path?: string; content?: string };
   if (!relPath || relPath.includes('..')) { res.status(400).json({ error: 'Invalid path' }); return; }
   if (typeof content !== 'string') { res.status(400).json({ error: '"content" is required' }); return; }
@@ -673,8 +954,8 @@ app.post('/api/wiki/save', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/wiki/file?path=<rel-path>
-app.delete('/api/wiki/file', async (req: Request, res: Response) => {
+// DELETE /api/wiki/file?path=<rel-path> [AUTH]
+app.delete('/api/wiki/file', requireToken, async (req: Request, res: Response) => {
   const rel = String(req.query['path'] ?? '');
   if (!rel || rel.includes('..')) { res.status(400).json({ error: 'Invalid path' }); return; }
   const full = path.join(WIKI_DIR, rel);
@@ -704,7 +985,10 @@ app.post('/api/wiki/generate', async (req: Request, res: Response) => {
     instruction: string;
     history:     { role: string; content: string }[];
     sourcePaths: string[];
-    aiConfig:    Record<string, string>;
+    aiConfig:    { ai_provider?: string; llama_host?: string; llama_port?: string;
+                   custom_base_url?: string; custom_model?: string; hermes_base_url?: string;
+                   custom_api_key?: string };
+    // 注意：API Key 不從 request body 接受，一律從 process.env 讀取
   };
   if (!instruction?.trim()) { res.status(400).json({ error: '"instruction" is required' }); return; }
 
@@ -765,6 +1049,19 @@ app.post('/api/wiki/generate', async (req: Request, res: Response) => {
   // ── 依 ai_provider 選擇接口 ──────────────────────────────────────────────
   const provider = (aiConfig['ai_provider'] ?? process.env['AI_PROVIDER'] ?? 'anthropic').toLowerCase();
 
+  // ── Hermes Agent：獨立分支，走多輪 tool-calling 迴圈而非單輪文字生成 ──────
+  if (provider === 'hermes') {
+    try {
+      const result = await runHermesAgent(systemPrompt, history, userContent, aiConfig['hermes_base_url']);
+      if (result.type === 'error')   { res.status(502).json({ error: result.message }); return; }
+      if (result.type === 'files')   { res.json({ type: 'files', files: result.files, summary: result.summary ?? '' }); return; }
+      res.json({ type: 'question', message: result.message ?? '' });
+      return;
+    } catch (err: any) {
+      res.status(500).json({ error: String(err.message) }); return;
+    }
+  }
+
   let aiText = '';
 
   try {
@@ -796,7 +1093,7 @@ app.post('/api/wiki/generate', async (req: Request, res: Response) => {
 
     } else if (provider === 'openai') {
       // ── OpenAI /v1/chat/completions ───────────────────────────────────────
-      const apiKey = aiConfig['openai_key'] ?? process.env['OPENAI_API_KEY'] ?? '';
+      const apiKey = process.env['OPENAI_API_KEY'] ?? '';   // Key 只從 .env 讀取
       if (!apiKey) { res.status(503).json({ error: '請在設定頁填入 OpenAI API Key' }); return; }
 
       const msgs = [
@@ -851,7 +1148,7 @@ app.post('/api/wiki/generate', async (req: Request, res: Response) => {
 
     } else {
       // ── Anthropic（預設）────────────────────────────────────────────────
-      const apiKey = aiConfig['anthropic_key'] ?? process.env['ANTHROPIC_API_KEY'] ?? '';
+      const apiKey = process.env['ANTHROPIC_API_KEY'] ?? '';   // Key 只從 .env 讀取
       if (!apiKey) { res.status(503).json({ error: '請在設定頁填入 Anthropic API Key，或在 .env 設定 ANTHROPIC_API_KEY' }); return; }
 
       const msgs = [

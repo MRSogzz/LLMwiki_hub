@@ -7,12 +7,58 @@ const API = 'http://localhost:3001';
 // api() 使用 window.API_OVERRIDE（來自設定）或預設值
 function getAPIBase() { return window.API_OVERRIDE || API; }
 
+// ── HUD Token ─────────────────────────────────────────────────────────────────
+// 用於所有 mutation 請求（POST write / DELETE）的身份驗證 header。
+// Token 由後端啟動時產生（或從 .env HUD_TOKEN 讀取），首次使用時貼入即可。
+
+const TOKEN_KEY = 'llm-wiki-hud-token';
+
+function getHudToken() {
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function setHudToken(token) {
+  localStorage.setItem(TOKEN_KEY, token.trim());
+}
+
+/** 顯示 token 輸入提示（用於 401 回應時）*/
+function promptToken(retryFn) {
+  const current = getHudToken();
+  const input = prompt(
+    '後端要求驗證 Token（x-hud-token）。\n' +
+    '請查看後端啟動 terminal 取得 HUD_TOKEN，或在 .env 中設定後重啟。\n\n' +
+    '目前 Token：' + (current ? current.slice(0,8) + '…' : '（未設定）'),
+    current
+  );
+  if (input !== null) {
+    setHudToken(input);
+    if (typeof retryFn === 'function') retryFn();
+  }
+}
+
+// 需要 token 的 method
+const MUTATION_METHODS = new Set(['POST', 'DELETE', 'PATCH', 'PUT']);
+
 // ── API helper ────────────────────────────────────────────────────────────────
 
 async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const headers = { ...(opts.headers || {}) };
+
+  // 寫入 / 刪除操作自動帶 token
+  if (MUTATION_METHODS.has(method)) {
+    const token = getHudToken();
+    if (token) headers['x-hud-token'] = token;
+  }
+
   try {
-    const res  = await fetch(getAPIBase() + path, opts);
+    const res  = await fetch(getAPIBase() + path, { ...opts, headers });
     const json = await res.json();
+    if (res.status === 401) {
+      // Token 錯誤 → 提示使用者輸入，不丟出原始錯誤以免誤導
+      promptToken(() => api(path, opts));
+      throw new Error('請輸入正確的 HUD Token 後重試');
+    }
     if (!res.ok) throw new Error(json.error || res.statusText);
     return json;
   } catch (e) {
